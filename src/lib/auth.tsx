@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import api from '@/lib/api'
+import { set } from 'zod'
 
 // ⚡ DEV ONLY: Đặt thành null để bật tính năng đăng nhập thật
 const FAKE_USER: User | null = null
@@ -34,11 +35,10 @@ const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     // Nếu đã có FAKE_USER thì bỏ qua restore từ localStorage
-    if (FAKE_USER) return
     const stored = localStorage.getItem('user')
     if (stored) {
       try {
@@ -46,6 +46,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(JSON.parse(stored))
       } catch { /* ignore */ }
     }
+
+    setIsLoading(false)
   }, [])
 
   const login = async (username: string, password: string) => {
