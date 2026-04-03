@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query'
 const RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
 
 interface MenuComboItem { id: string; name: string; price: number; imageUrl?: string; quantity: number }
-interface MenuItem { id: string; name: string; price: number; imageUrl?: string; unit: string; isAvailable: boolean; categoryId: string; categoryName: string; description: string; sortOrder: number; itemType: string; comboItems?: MenuComboItem[] }
+interface MenuItem { id: string; name: string; price: number; discountPrice?: number; discountType?: string; discountValue?: number; imageUrl?: string; unit: string; isAvailable: boolean; categoryId: string; categoryName: string; description: string; sortOrder: number; itemType: string; comboItems?: MenuComboItem[] }
 interface MenuCategory { id: string; name: string; sortOrder: number }
 
 export default function MenuPage() {
@@ -203,8 +203,24 @@ export default function MenuPage() {
                     </td>
                     <td style={{ padding: '12px 16px', fontSize: 13, color: '#475569' }}>{item.categoryName}</td>
                     <td style={{ padding: '12px 16px', fontSize: 13, color: '#475569' }}>{item.unit}</td>
-                    <td style={{ padding: '12px 16px', fontWeight: 700, color: '#2563eb', fontSize: 14 }}>
-                      {item.price.toLocaleString('vi-VN')}đ
+                    <td style={{ padding: '12px 16px', fontSize: 14 }}>
+                      {item.discountPrice && item.discountPrice < item.price ? (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ textDecoration: 'line-through', color: '#94a3b8', fontSize: 12, fontWeight: 500 }}>
+                            {item.price.toLocaleString('vi-VN')}đ
+                          </span>
+                          <span style={{ fontWeight: 700, color: '#ef4444' }}>
+                            {item.discountPrice.toLocaleString('vi-VN')}đ
+                          </span>
+                          <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 700, textTransform: 'uppercase' }}>
+                            {item.discountType === 'percentage' ? `-${item.discountValue}%` : 'Giảm giá'}
+                          </span>
+                        </div>
+                      ) : (
+                        <span style={{ fontWeight: 700, color: '#2563eb' }}>
+                          {item.price.toLocaleString('vi-VN')}đ
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: '12px 16px' }}>
                       <button onClick={() => handleToggleAvailable(item)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>

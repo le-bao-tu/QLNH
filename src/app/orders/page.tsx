@@ -8,7 +8,7 @@ import api from '@/lib/api'
 
 const BRANCH_ID = '00000000-0000-0000-0000-000000000001'
 
-interface Order { id: string; tableNumber: number; status: string; totalAmount: number; itemCount: number; createdAt: string }
+interface Order { id: string; tableNumber: number; status: string; subtotal: number; totalAmount: number; itemCount: number; createdAt: string }
 
 const STATUS_MAP: Record<string, { label: string; className: string }> = {
   pending: { label: 'Chờ xử lý', className: 'badge-pending' },
@@ -29,6 +29,7 @@ export default function OrdersPage() {
   const [payMethod, setPayMethod] = useState('cash')
   const [discount, setDiscount] = useState('0')
   const [paying, setPaying] = useState(false)
+console.log(orders);
 
   const filtered = filterStatus === 'all' ? orders : orders.filter((o: Order) => o.status === filterStatus)
 
@@ -121,7 +122,7 @@ export default function OrdersPage() {
                       {STATUS_MAP[order.status]?.label || order.status}
                     </span>
                     <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
-                      {order.totalAmount.toLocaleString('vi-VN')}đ
+                      {order.totalAmount.toLocaleString('vi-VN')}đ (Đã bao gồm thuế)
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {order.status !== 'paid' && order.status !== 'cancelled' && (

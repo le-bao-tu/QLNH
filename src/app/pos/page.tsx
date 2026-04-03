@@ -27,14 +27,19 @@ import {
   UtensilsCrossed
 } from 'lucide-react'
 import api from '@/lib/api'
+import { q } from 'framer-motion/client'
 
 const RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
 const BRANCH_ID = '00000000-0000-0000-0000-000000000001'
 
 interface CartItem {
-  menuItemId: string
+  id: string
   name: string
-  price: number
+  price: number // Giá đã bao gồm giảm giá tự động từ backend
+  unitPrice: number // Giá gốc để hiển thị gạch ngang
+  totalPrice?: number // price * quantity, có thể dùng để hiển thị nếu cần
+  originalPrice: number // Giá gốc để hiển thị gạch ngang nếu có khuyến mãi tự động
+  oldQuantity: number
   quantity: number
   note?: string
 }
@@ -51,6 +56,7 @@ export default function POSPage() {
   const [selectedTable, setSelectedTable] = useState<any>(null)
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [cart, setCart] = useState<CartItem[]>([])
+  const [newCart, setNewCart] = useState<CartItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [orderNote, setOrderNote] = useState('')
 
@@ -69,26 +75,60 @@ export default function POSPage() {
   const { data: categories = [] } = useMenuCategories(RESTAURANT_ID)
   const { data: allItems = [] } = useMenuItems(RESTAURANT_ID)
   const { data: customers = [] } = useCustomers(RESTAURANT_ID, customerSearch)
+  const { data: allPromotions = [] } = usePromotions(RESTAURANT_ID)
 
   const createOrder = useCreateOrder()
   const addOrderItem = useAddOrderItem()
 
-  // Fetch current order when table changes
+  // Load existing order when table is selected
   useEffect(() => {
-    const fetchOrder = async () => {
-      if (selectedTable?.currentOrderId) {
-        try {
-          const { data } = await api.get(`/api/orders/${selectedTable.currentOrderId}`)
-          setCurrentOrderDetails(data)
-        } catch {
-          setCurrentOrderDetails(null)
-        }
-      } else {
-        setCurrentOrderDetails(null)
-      }
+    if (selectedTable?.status === 'occupied' && selectedTable?.currentOrderId) {
+      setLoading(true)
+      api.get(`/api/orders/${selectedTable.currentOrderId}`)
+        .then(({ data }) => {
+          if (data && data.items) {
+            const items = data.items
+            const itemMap = new Map()
+
+            items.forEach((i: any) => {
+              const currentQuantity = itemMap.get(i.menuItemId) || 0
+              itemMap.set(i.menuItemId, currentQuantity + i.quantity)
+            })
+
+            const uniqueItems = Array.from(itemMap.entries()).map(([menuItemId, quantity]) => {
+              const item = items.find((i: any) => i.menuItemId === menuItemId)
+              return {
+                id: item.menuItemId,
+                name: item.menuItemName,
+                price: item.unitPrice,
+                unitPrice: item.unitPrice,
+                totalPrice: item.unitPrice * quantity,
+                originalPrice: item.originalPrice,
+                quantity: quantity,
+                note: item.note,
+                oldQuantity: quantity
+              }
+            })
+
+            setCart(uniqueItems)
+
+          }
+        })
+        .catch(err => {
+          console.error('Failed to load table order:', err)
+          setCart([])
+        })
+        .finally(() => setLoading(false))
+    } else {
+      setCart([])
+      setAppliedPromotion(null)
+      setVoucherCode('')
     }
-    fetchOrder()
-  }, [selectedTable])
+  }, [selectedTable?.id, selectedTable?.status, selectedTable?.currentOrderId])
+
+  const getItemDiscountedPrice = (item: any) => {
+    return item.discountPrice ?? item.price
+  }
 
   const filteredItems = allItems.filter((item: any) => {
     const matchCategory = selectedCategory === 'all' || item.categoryId === selectedCategory
@@ -96,45 +136,71 @@ export default function POSPage() {
     return matchCategory && matchSearch && item.isAvailable
   })
 
-  // Calculate Totals (Existing + Cart)
-  const existingSubtotal = currentOrderDetails?.subtotal || 0
-  const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
-  const subtotal = existingSubtotal + cartSubtotal
-  
+  // Calculate Totals
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+
+  // robust promotion helpers
+  const isTypePercentage = (type: string) => /percentage/i.test(type)
+  const isTypeFixed = (type: string) => /fixed_amount/i.test(type)
+  const isApplyToBill = (scope: string) => /bill/i.test(scope)
+
+  // Find best automatic bill promotion
+  const bestAutoBillPromo = allPromotions
+    .filter((p: any) => isApplyToBill(p.applyTo) && p.isActive && !p.isVoucher)
+    .reduce((best: any, p: any) => {
+      if (subtotal < p.minOrderAmount) return best
+      let currentDiscount = 0
+      if (isTypePercentage(p.type)) {
+        currentDiscount = (subtotal * p.discountValue) / 100
+        if (p.maxDiscount && currentDiscount > p.maxDiscount) currentDiscount = p.maxDiscount
+      } else if (isTypeFixed(p.type)) {
+        currentDiscount = p.discountValue
+      }
+      if (!best || currentDiscount > best.amount) return { amount: currentDiscount, promotion: p }
+      return best
+    }, null)
+
   let discount = 0
+  let promoSource = ''
+
   if (appliedPromotion && appliedPromotion.promotion) {
     const p = appliedPromotion.promotion
-    if (p.applyTo === 'bill') {
-      if (p.type === 'percentage') {
+    const code = appliedPromotion.code
+    if (isApplyToBill(p.applyTo)) {
+      if (isTypePercentage(p.type)) {
         discount = (subtotal * p.discountValue) / 100
-        if (p.maxDiscount && discount > p.maxDiscount) {
-          discount = p.maxDiscount
-        }
+        if (p.maxDiscount && discount > p.maxDiscount) discount = p.maxDiscount
       } else {
         discount = p.discountValue
       }
-    } else if (p.applyTo === 'item') {
-      let totalItemDiscount = 0
+      promoSource = `Voucher: ${code}`
+    } else if (/item/i.test(p.applyTo)) {
       cart.forEach(item => {
         let itemDiscountAmount = 0
-        if (p.type === 'percentage') {
+        if (isTypePercentage(p.type)) {
           itemDiscountAmount = (item.price * p.discountValue) / 100
         } else {
           itemDiscountAmount = p.discountValue
         }
         if (itemDiscountAmount > item.price) itemDiscountAmount = item.price
-        totalItemDiscount += itemDiscountAmount * item.quantity
+        discount += itemDiscountAmount * item.quantity
       })
-      discount = totalItemDiscount
+      promoSource = `Voucher: ${code}`
     }
+  } else if (bestAutoBillPromo) {
+    discount = bestAutoBillPromo.amount
+    promoSource = `KM tự động: ${bestAutoBillPromo.promotion.name}`
   }
-  const total = Math.max(0, subtotal - discount)
+
+  const tax = Math.round((subtotal - discount) * 0.10)
+  const total = Math.max(0, subtotal - discount + tax)
 
   const getDiscountedItemPrice = (item: CartItem) => {
-    if (!appliedPromotion || !appliedPromotion.promotion || appliedPromotion.promotion.applyTo !== 'item') return item.price
+    // Current design: Only voucher applies on top of item flash sale
+    if (!appliedPromotion || !appliedPromotion.promotion || !/item/i.test(appliedPromotion.promotion.applyTo)) return item.price
     const p = appliedPromotion.promotion
     let itemDiscountAmount = 0
-    if (p.type === 'percentage') {
+    if (isTypePercentage(p.type)) {
       itemDiscountAmount = (item.price * p.discountValue) / 100
     } else {
       itemDiscountAmount = p.discountValue
@@ -143,21 +209,82 @@ export default function POSPage() {
   }
 
   const addToCart = (item: any) => {
+    const discountedPrice = getItemDiscountedPrice(item)
+
+    // Xử lý older cũ
     setCart(prev => {
-      const existing = prev.find(c => c.menuItemId === item.id)
+      const existing = prev.find(c => c.id === item.id)
       if (existing) {
-        return prev.map(c => c.menuItemId === item.id ? { ...c, quantity: c.quantity + 1 } : c)
+        return prev.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1, oldQuantity: c.quantity } : c)
       }
-      return [...prev, { menuItemId: item.id, name: item.name, price: item.price, quantity: 1 }]
+      return [...prev, {
+        id: item.id,
+        name: item.name,
+        price: discountedPrice,
+        unitPrice: item.price,
+        totalPrice: item.price * item.quantity,
+        originalPrice: item.price,
+        quantity: 1,
+        oldQuantity: 1
+      }]
+    })
+
+    // Xử lý order mới
+    setNewCart(prev => {
+      const existing = prev.find(c => c.id === item.id)
+      if (existing) {
+        return prev.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1, oldQuantity: c.quantity } : c)
+      }
+      return [...prev, {
+        id: item.id,
+        name: item.name,
+        price: discountedPrice,
+        unitPrice: item.price,
+        totalPrice: item.price * item.quantity,
+        originalPrice: item.price,
+        quantity: 1,
+        oldQuantity: 1
+      }]
     })
   }
 
   const updateQuantity = (menuItemId: string, delta: number) => {
     setCart(prev => prev.map(c => {
-      if (c.menuItemId !== menuItemId) return c
+      if (c.id !== menuItemId) return c
       const newQty = c.quantity + delta
-      return newQty <= 0 ? c : { ...c, quantity: newQty }
+      return newQty <= 0 || newQty < c.oldQuantity ? c : { ...c, quantity: newQty }
     }).filter(c => c.quantity > 0))
+
+    setNewCart(
+      prev => {
+        if (prev.length === 0) {
+          const item = cart.find((i: any) => i.id === menuItemId) as CartItem
+          const discountedPrice = getItemDiscountedPrice(item)
+
+          if (item.quantity + delta > item.oldQuantity) {
+            return [
+              {
+                id: item.id,
+                name: item.name,
+                price: discountedPrice,
+                unitPrice: item.price,
+                totalPrice: item.price * item.quantity,
+                originalPrice: item.price,
+                quantity: 1,
+                oldQuantity: 1
+              }
+            ]
+          }
+        }
+
+        return prev.map(c => {
+          if (c.id !== menuItemId) return c
+          const newQty = c.quantity + delta
+          return newQty <= 0 || newQty < c.oldQuantity ? {} as CartItem : { ...c, quantity: newQty }
+        }).filter(c => c.quantity > 0)
+
+      }
+    )
   }
 
   const applyVoucher = async () => {
@@ -174,14 +301,15 @@ export default function POSPage() {
   }
 
   const handleSendToKitchen = async () => {
-    if (!selectedTable || cart.length === 0) return
+    if (!selectedTable || newCart.length === 0) return
     setLoading(true)
     try {
       if (selectedTable.currentOrderId) {
         // Append to existing order
-        for (const item of cart) {
-          await api.post(`/api/orders/${selectedTable.currentOrderId}/items`, {
-            menuItemId: item.menuItemId,
+        for (const item of newCart) {
+          await addOrderItem.mutateAsync({
+            orderId: selectedTable.currentOrderId,
+            menuItemId: item.id,
             quantity: item.quantity,
             note: item.note,
           })
@@ -193,14 +321,15 @@ export default function POSPage() {
           customerId: selectedCustomer?.id,
           guestCount: 1,
           note: orderNote,
-          items: cart.map(item => ({
-            menuItemId: item.menuItemId,
+          voucherCode: appliedPromotion?.code,
+          items: newCart.map(item => ({
+            menuItemId: item.id,
             quantity: item.quantity,
             note: item.note,
           }))
         })
       }
-      setCart([])
+      setNewCart([])
       setSelectedCustomer(null)
       setAppliedPromotion(null)
       setVoucherCode('')
@@ -225,7 +354,7 @@ export default function POSPage() {
 
   return (
     <AuthLayout>
-      <div className="flex h-[calc(100vh-80px)] gap-4 p-4 bg-gray-50 overflow-hidden">
+      <div className="flex h-[calc(100vh-40px)] gap-4 p-4 bg-gray-50 overflow-hidden">
 
         {/* LEFT: TABLE SELECTION (Narrow) */}
         <div className="w-20 md:w-24 bg-white rounded-3xl border border-gray-100 shadow-sm flex flex-col p-3 gap-3 overflow-y-auto custom-scrollbar">
@@ -235,9 +364,9 @@ export default function POSPage() {
               key={t.id}
               onClick={() => setSelectedTable(t)}
               className={`aspect-square rounded-2xl flex flex-col items-center justify-center transition-all border-2 relative ${selectedTable?.id === t.id ? 'bg-blue-600 border-blue-600 text-white shadow-lg scale-105 z-10' :
-                  t.status === 'occupied' ? 'bg-red-50 border-red-100 text-red-600' :
-                    t.status === 'reserved' ? 'bg-yellow-50 border-yellow-100 text-yellow-600' :
-                      'bg-gray-50 border-transparent text-gray-500 hover:border-gray-200'
+                t.status === 'occupied' ? 'bg-red-50 border-red-100 text-red-600' :
+                  t.status === 'reserved' ? 'bg-yellow-50 border-yellow-100 text-yellow-600' :
+                    'bg-gray-50 border-transparent text-gray-500 hover:border-gray-200'
                 }`}
             >
               <span className="text-xl font-black">{t.tableNumber}</span>
@@ -282,33 +411,53 @@ export default function POSPage() {
           {/* Items Grid */}
           <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-              {filteredItems.map((item: any) => (
-                <button
-                  key={item.id}
-                  onClick={() => addToCart(item)}
-                  className="bg-white rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all overflow-hidden p-3 group relative active:scale-95"
-                >
-                  <div className="aspect-square bg-gray-100 rounded-2xl mb-3 flex items-center justify-center overflow-hidden relative">
-                    {item.imageUrl ? (
-                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                    ) : (
-                      <UtensilsCrossed size={32} className="text-gray-300" />
+              {filteredItems.map((item: any) => {
+                const discountedPrice = getItemDiscountedPrice(item)
+                const hasDiscount = discountedPrice < item.price
+
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => addToCart(item)}
+                    className="bg-white rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all overflow-hidden p-3 group relative active:scale-95"
+                  >
+                    <div className="aspect-square bg-gray-100 rounded-2xl mb-3 flex items-center justify-center overflow-hidden relative">
+                      {item.imageUrl ? (
+                        <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                      ) : (
+                        <UtensilsCrossed size={32} className="text-gray-300" />
+                      )}
+
+                      {/* Promotion Badge */}
+                      {hasDiscount && (
+                        <div className="absolute top-2 left-2 bg-red-500 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg animate-bounce">
+                          {item.discountType === 'percentage' ? `-${item.discountValue}%` : 'SALE'}
+                        </div>
+                      )}
+
+                      <div className="absolute bottom-2 right-2 flex flex-col items-end">
+                        {hasDiscount && (
+                          <span className="bg-gray-400/80 backdrop-blur-sm text-white px-2 py-0.5 rounded-lg text-[9px] line-through font-bold mb-1">
+                            {item.price.toLocaleString()}đ
+                          </span>
+                        )}
+                        <div className={`bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-xl font-black text-sm shadow-sm ${hasDiscount ? 'text-red-600' : 'text-blue-600'}`}>
+                          {discountedPrice.toLocaleString()}đ
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-left px-1">
+                      <h4 className="font-bold text-gray-900 line-clamp-1 leading-tight group-hover:text-blue-600 transition-colors uppercase text-xs tracking-tight">{item.name}</h4>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">{item.categoryName} · {item.unit}</p>
+                    </div>
+                    {cart.find(c => c.id === item.id) && (
+                      <div className="absolute top-4 right-4 w-8 h-8 bg-blue-600 text-white rounded-xl shadow-lg flex items-center justify-center font-black text-xs animate-in zoom-in">
+                        {cart.find(c => c.id === item.id)?.quantity}
+                      </div>
                     )}
-                    <div className="absolute bottom-2 right-2 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-xl font-black text-blue-600 text-sm shadow-sm">
-                      {item.price.toLocaleString()}đ
-                    </div>
-                  </div>
-                  <div className="text-left px-1">
-                    <h4 className="font-bold text-gray-900 line-clamp-1 leading-tight group-hover:text-blue-600 transition-colors uppercase text-xs tracking-tight">{item.name}</h4>
-                    <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">{item.categoryName} · {item.unit}</p>
-                  </div>
-                  {cart.find(c => c.menuItemId === item.id) && (
-                    <div className="absolute top-4 right-4 w-8 h-8 bg-blue-600 text-white rounded-xl shadow-lg flex items-center justify-center font-black text-xs animate-in zoom-in">
-                      {cart.find(c => c.menuItemId === item.id)?.quantity}
-                    </div>
-                  )}
-                </button>
-              ))}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -393,7 +542,7 @@ export default function POSPage() {
           </div>
 
           {/* Cart Items List */}
-          <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm flex-1 flex flex-col overflow-hidden">
+          <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-xs flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
               {cart.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center opacity-20">
@@ -401,32 +550,41 @@ export default function POSPage() {
                   <p className="font-black uppercase tracking-widest text-xs">Giỏ hàng trống</p>
                 </div>
               ) : (
-                cart.map(item => (
-                  <div key={item.menuItemId} className="flex flex-col gap-2 p-4 bg-gray-50 rounded-3xl group shadow-sm">
-                    <div className="flex justify-between items-start">
-                      <div className="flex flex-col flex-1">
-                        <span className="font-black text-sm text-gray-900 uppercase tracking-tight">{item.name}</span>
-                        {appliedPromotion && appliedPromotion.promotion?.applyTo === 'item' && (
-                          <span className="text-[10px] text-green-600 font-bold uppercase">Áp dụng KM: {getDiscountedItemPrice(item).toLocaleString()}đ/sp</span>
-                        )}
+                cart.map((item, index) => {
+                  const hasAutoDiscount = item.originalPrice > item.price
+                  const finalUnitPrice = getDiscountedItemPrice(item)
+                  const hasVoucherDiscount = finalUnitPrice < item.price
+
+                  return (
+                    <div key={index} className="flex flex-col gap-2 p-4 bg-gray-50 rounded-3xl group shadow-sm">
+                      <div className="flex justify-between items-start">
+                        <div className="flex flex-col flex-1">
+                          <span className="font-black text-sm text-gray-900 uppercase tracking-tight">{item.name}</span>
+                          {hasAutoDiscount && (
+                            <span className="text-[9px] text-red-500 font-bold uppercase">Giảm giá tự động áp dụng</span>
+                          )}
+                          {hasVoucherDiscount && (
+                            <span className="text-[10px] text-green-600 font-bold uppercase">Áp dụng KM: {finalUnitPrice.toLocaleString()}đ/sp</span>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="font-black text-blue-600 text-sm">{(finalUnitPrice * item.quantity).toLocaleString()}đ</span>
+                          {(hasAutoDiscount || hasVoucherDiscount) && (
+                            <span className="text-[10px] line-through text-gray-400 font-bold">{(item.unitPrice * item.quantity).toLocaleString()}đ</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex flex-col items-end">
-                        <span className="font-black text-blue-600 text-sm">{(getDiscountedItemPrice(item) * item.quantity).toLocaleString()}đ</span>
-                        {appliedPromotion && appliedPromotion.promotion?.applyTo === 'item' && (
-                          <span className="text-[10px] line-through text-gray-400 font-bold">{(item.price * item.quantity).toLocaleString()}đ</span>
-                        )}
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex bg-white rounded-xl p-1 shadow-sm border border-gray-100">
+                          <button onClick={() => updateQuantity(item.id, -1)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-50 transition-colors"><Minus size={14} /></button>
+                          <span className="w-10 flex items-center justify-center font-black text-sm">{item.quantity}</span>
+                          <button onClick={() => updateQuantity(item.id, 1)} className="w-8 h-8 rounded-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-colors"><Plus size={14} /></button>
+                        </div>
+                        <button onClick={() => updateQuantity(item.id, -item.quantity)} className="text-gray-300 hover:text-red-500 transition-colors"><X size={16} /></button>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <div className="flex bg-white rounded-xl p-1 shadow-sm border border-gray-100">
-                        <button onClick={() => updateQuantity(item.menuItemId, -1)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-50 transition-colors"><Minus size={14} /></button>
-                        <span className="w-10 flex items-center justify-center font-black text-sm">{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.menuItemId, 1)} className="w-8 h-8 rounded-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-colors"><Plus size={14} /></button>
-                      </div>
-                      <button onClick={() => updateQuantity(item.menuItemId, -item.quantity)} className="text-gray-300 hover:text-red-500 transition-colors"><X size={16} /></button>
-                    </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
 
@@ -456,12 +614,16 @@ export default function POSPage() {
                   <span>Tạm tính</span>
                   <span>{subtotal.toLocaleString()}đ</span>
                 </div>
-                {appliedPromotion && appliedPromotion.promotion && (
+                {discount > 0 && (
                   <div className="flex justify-between text-green-600 font-black text-xs uppercase tracking-widest">
-                    <span>Giảm giá ({appliedPromotion.code || appliedPromotion.promotion.name})</span>
+                    <span>Giảm giá ({promoSource})</span>
                     <span>-{discount.toLocaleString()}đ</span>
                   </div>
                 )}
+                <div className="flex justify-between text-gray-500 font-bold text-xs uppercase tracking-widest">
+                  <span>Thuế (10% VAT)</span>
+                  <span>{tax.toLocaleString()}đ</span>
+                </div>
                 <div className="flex justify-between items-end border-t border-gray-200 pt-4">
                   <span className="font-black text-xl text-gray-900 leading-none">Tổng chi phí</span>
                   <span className="font-black text-3xl text-blue-600 leading-none tracking-tighter">{total.toLocaleString()}đ</span>
@@ -470,7 +632,7 @@ export default function POSPage() {
 
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <button
-                  disabled={!selectedTable || cart.length === 0 || loading}
+                  disabled={!selectedTable || newCart.length === 0 || loading}
                   onClick={handleSendToKitchen}
                   className="bg-orange-600 hover:bg-orange-700 disabled:bg-gray-200 text-white rounded-2xl py-4 flex flex-col items-center justify-center gap-1 transition-all shadow-lg shadow-orange-100 group active:scale-95"
                 >
