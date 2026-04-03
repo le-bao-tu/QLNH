@@ -44,7 +44,7 @@ export function useTables(branchId: string) {
       return data
     },
     enabled: !!branchId,
-    refetchInterval: 10000, // Poll every 10 seconds
+    refetchOnMount: true,
   })
 }
 
@@ -67,7 +67,8 @@ export function useMenuCategories(restaurantId: string) {
       const { data } = await api.get(`/api/menu/categories/restaurant/${restaurantId}`)
       return data
     },
-    enabled: !!restaurantId
+    enabled: !!restaurantId,
+    refetchOnMount: true,
   })
 }
 
@@ -78,7 +79,10 @@ export function useMenuItems(restaurantId: string) {
       const { data } = await api.get(`/api/menu/items/restaurant/${restaurantId}`)
       return data
     },
-    enabled: !!restaurantId
+    enabled: !!restaurantId,
+    refetchOnMount: true,
+    staleTime: 0,
+    gcTime: 0,
   })
 }
 
@@ -257,7 +261,8 @@ export function useCustomers(restaurantId: string, search?: string) {
       const { data } = await api.get(`/api/customers/restaurant/${restaurantId}`, { params: { search } })
       return data
     },
-    enabled: !!restaurantId
+    enabled: !!restaurantId,
+    refetchOnMount: true,
   })
 }
 
@@ -315,7 +320,8 @@ export function usePromotions(restaurantId: string) {
       const { data } = await api.get(`/api/promotions/restaurant/${restaurantId}`)
       return data
     },
-    enabled: !!restaurantId
+    enabled: true,
+    refetchOnMount: true,
   })
 }
 

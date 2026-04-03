@@ -62,13 +62,11 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                 voucherCode: ''
             })
             // Parse menuItemIds (JSON array string hoặc comma-separated)
-            console.log(editPromotion);
-            
             if (editPromotion.menuItemIds) {
                 try {
                     const parsed = JSON.parse(editPromotion.menuItemIds)
                     console.log(parsed);
-                    
+
                     setSelectedItemIds(Array.isArray(parsed) ? parsed : [])
                 } catch {
                     setSelectedItemIds(editPromotion.menuItemIds.split(',').filter(Boolean))
@@ -278,25 +276,32 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
 
                         {/* Đơn tối thiểu + Giảm tối đa */}
                         <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-2">Đơn tối thiểu (đ)</label>
-                                <input
-                                    type="number"
-                                    value={form.minOrderAmount}
-                                    onChange={e => setForm({ ...form, minOrderAmount: Number(e.target.value) })}
-                                    className="w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-2">Giảm tối đa (đ)</label>
-                                <input
-                                    type="number"
-                                    disabled={form.type === 'fixed_amount'}
-                                    value={form.maxDiscountAmount}
-                                    onChange={e => setForm({ ...form, maxDiscountAmount: Number(e.target.value) })}
-                                    className={`w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm ${form.type === 'fixed_amount' ? 'opacity-50' : ''}`}
-                                />
-                            </div>
+                            {
+                                form.applyTo !== 'item' &&
+                                < div >
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Đơn tối thiểu (đ)</label>
+                                    <input
+                                        type="number"
+                                        value={form.minOrderAmount}
+                                        onChange={e => setForm({ ...form, minOrderAmount: Number(e.target.value) })}
+                                        className="w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm"
+                                    />
+                                </div>
+                            }
+
+                            {
+                                (form.type !== 'fixed_amount' && form.applyTo !== 'item') &&
+                                < div >
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Giảm tối đa (đ)</label>
+                                    <input
+                                        type="number"
+                                        disabled={form.type === 'fixed_amount' || form.applyTo === 'item'}
+                                        value={form.maxDiscountAmount}
+                                        onChange={e => setForm({ ...form, maxDiscountAmount: Number(e.target.value) })}
+                                        className={`w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm ${form.type === 'fixed_amount' ? 'opacity-50' : ''}`}
+                                    />
+                                </div>
+                            }
                         </div>
 
                         {/* Áp dụng cho */}
@@ -312,7 +317,6 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                                         type="button"
                                         onClick={() => {
                                             setForm({ ...form, applyTo: opt.value as any })
-                                            setSelectedItemIds([])
                                         }}
                                         className={`text-left px-4 py-3 rounded-2xl border-2 transition-all ${form.applyTo === opt.value
                                             ? 'border-blue-600 bg-blue-50 text-blue-700'
@@ -489,7 +493,7 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
+            </div >
+        </div >
     )
 }
