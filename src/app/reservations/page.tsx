@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
-
-const BRANCH_ID = '00000000-0000-0000-0000-000000000001'
+import { useAuth } from '@/lib/auth'
 
 interface Reservation {
   id: string
@@ -31,6 +30,9 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 }
 
 export default function ReservationsPage() {
+  const { user } = useAuth()
+  const branchId = user?.branchId || ''
+
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0])
@@ -38,16 +40,17 @@ export default function ReservationsPage() {
   const [form, setForm] = useState({ guestName: '', guestPhone: '', partySize: 2, reservedAt: '', note: '' })
 
   const load = async () => {
+    if (!branchId) return
     setLoading(true)
     try {
-      const { data } = await api.get(`/api/reservations/branch/${BRANCH_ID}`, { params: { date: selectedDate } })
+      const { data } = await api.get(`/api/reservations/branch/${branchId}`, { params: { date: selectedDate } })
       setReservations(data)
     } catch {
       setReservations([])
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [selectedDate])
+  useEffect(() => { load() }, [selectedDate, branchId])
 
   const updateStatus = async (id: string, status: string) => {
     await api.patch(`/api/reservations/${id}/status`, { status })
@@ -56,8 +59,9 @@ export default function ReservationsPage() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!branchId) return
     await api.post('/api/reservations', {
-      branchId: BRANCH_ID,
+      branchId: branchId,
       guestName: form.guestName,
       guestPhone: form.guestPhone,
       partySize: form.partySize,

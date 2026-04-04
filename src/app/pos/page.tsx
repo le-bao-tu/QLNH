@@ -27,7 +27,6 @@ import {
   UtensilsCrossed
 } from 'lucide-react'
 import api from '@/lib/api'
-import { q } from 'framer-motion/client'
 
 import { useAuth } from '@/lib/auth'
 

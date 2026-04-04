@@ -38,9 +38,9 @@ export default function BranchesPage() {
     setError('')
     try {
       if (editingBranch) {
-        await api.put(`/api/branch/${editingBranch.id}`, { ...formData, restaurantId })
+        await api.put(`/api/branches/${editingBranch.id}`, { ...formData, restaurantId })
       } else {
-        await api.post('/api/branch', { ...formData, restaurantId })
+        await api.post('/api/branches', { ...formData, restaurantId })
       }
       await refetch()
       setShowModal(false)

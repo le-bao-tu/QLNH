@@ -6,16 +6,18 @@ import { useMenuCategories, useMenuItems, useCreateMenuItem, useUpdateMenuItem, 
 import { Plus, Edit2, Trash2, BookOpen, Search, ToggleLeft, ToggleRight, ImagePlus, X, Loader2 } from 'lucide-react'
 import api from '@/lib/api'
 import { useQueryClient } from '@tanstack/react-query'
-
-const RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
+import { useAuth } from '@/lib/auth'
 
 interface MenuComboItem { id: string; name: string; price: number; imageUrl?: string; quantity: number }
 interface MenuItem { id: string; name: string; price: number; discountPrice?: number; discountType?: string; discountValue?: number; imageUrl?: string; unit: string; isAvailable: boolean; categoryId: string; categoryName: string; description: string; sortOrder: number; itemType: string; comboItems?: MenuComboItem[] }
 interface MenuCategory { id: string; name: string; sortOrder: number }
 
 export default function MenuPage() {
-  const { data: categories = [] } = useMenuCategories(RESTAURANT_ID)
-  const { data: items = [], isLoading } = useMenuItems(RESTAURANT_ID)
+  const { user } = useAuth()
+  const restaurantId = user?.restaurantId || ''
+
+  const { data: categories = [] } = useMenuCategories(restaurantId)
+  const { data: items = [], isLoading } = useMenuItems(restaurantId)
   const createItem = useCreateMenuItem()
   const updateItem = useUpdateMenuItem()
   const deleteItem = useDeleteMenuItem()
@@ -47,9 +49,10 @@ export default function MenuPage() {
 
   const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!restaurantId) return
     setSaving(true)
     try {
-      await api.post('/api/menu/categories', { restaurantId: RESTAURANT_ID, ...catForm, sortOrder: parseInt(catForm.sortOrder) })
+      await api.post('/api/menu/categories', { restaurantId: restaurantId, ...catForm, sortOrder: parseInt(catForm.sortOrder) })
       queryClient.invalidateQueries({ queryKey: ['menu-categories'] })
       setShowCatForm(false)
       setCatForm({ name: '', sortOrder: '0' })

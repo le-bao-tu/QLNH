@@ -17,9 +17,12 @@ import {
 import { VoucherDetailModal } from './components/VoucherDetailModal'
 import { CreatePromoteModal } from './components/CreatePromoteModal'
 
-const RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
+import { useAuth } from '@/lib/auth'
 
 export default function PromotionsPage() {
+  const { user } = useAuth()
+  const restaurantId = user?.restaurantId || ''
+
   const [promotions, setPromotions] = useState<Promotion[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -31,9 +34,10 @@ export default function PromotionsPage() {
   const [editPromotion, setEditPromotion] = useState<Promotion | null>(null)
 
   const loadPromotions = async () => {
+    if (!restaurantId) return
     setLoading(true)
     try {
-      const { data } = await api.get(`/api/promotions/restaurant/${RESTAURANT_ID}`)
+      const { data } = await api.get(`/api/promotions/restaurant/${restaurantId}`)
       console.log(data);
       
       setPromotions(data)
@@ -47,7 +51,7 @@ export default function PromotionsPage() {
 
   useEffect(() => {
     loadPromotions()
-  }, [])
+  }, [restaurantId])
 
   const toggleStatus = async (promo: Promotion) => {
     try {

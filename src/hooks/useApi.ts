@@ -220,7 +220,7 @@ export function useProcessPayment() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (dto: Record<string, unknown>) => {
-      const { data } = await api.post('/api/payments', dto)
+      const { data } = await api.post('/api/payment', dto)
       return data
     },
     onSuccess: () => {
@@ -234,7 +234,9 @@ export function useRecentPayments(branchId: string) {
   return useQuery({
     queryKey: ['payments', 'recent', branchId],
     queryFn: async () => {
-      const { data } = await api.get(`/api/payments/recent/branch/${branchId}`)
+      // Backend does not have a /recent/branch/id endpoint in PaymentController yet.
+      // We will follow the backend singular route pattern.
+      const { data } = await api.get(`/api/payment/recent/branch/${branchId}`)
       return data
     },
     enabled: !!branchId

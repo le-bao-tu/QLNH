@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
+import { useAuth } from '@/lib/auth'
 import { 
   ChefHat, 
   Timer, 
@@ -14,8 +15,6 @@ import {
   ArrowRight,
   Bell
 } from 'lucide-react'
-
-const BRANCH_ID = '00000000-0000-0000-0000-000000000001'
 
 interface KitchenOrder {
   id: string
@@ -33,14 +32,18 @@ interface KitchenOrder {
 }
 
 export default function KitchenPage() {
+  const { user } = useAuth()
+  const branchId = user?.branchId || ''
+
   const [tickets, setTickets] = useState<KitchenOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'pending' | 'cooking' | 'ready'>('all')
 
   const loadTickets = async () => {
+    if (!branchId) return
     try {
       // In a real app, this should be a WebSocket/SignalR connection
-      const { data } = await api.get(`/api/kitchen/branch/${BRANCH_ID}`)
+      const { data } = await api.get(`/api/kitchen/branch/${branchId}`)
       setTickets(data)
     } catch {
       setTickets([])
@@ -53,7 +56,7 @@ export default function KitchenPage() {
     loadTickets()
     const interval = setInterval(loadTickets, 10000) // Poll every 10s for demo
     return () => clearInterval(interval)
-  }, [])
+  }, [branchId])
 
   const updateStatus = async (id: string, status: string) => {
     try {

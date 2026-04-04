@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
+import { useAuth } from '@/lib/auth'
 import { ChevronLeft, ChevronRight, Copy, LayoutGrid, CalendarDays, Pencil, Trash2, Plus, Clock, Shuffle, AlertCircle, X } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -31,7 +32,6 @@ interface ShiftAssignment {
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
-const BRANCH_ID = '00000000-0000-0000-0000-000000000001'
 
 const ROLE_CFG: Record<string, { label: string; badge: string }> = {
   owner:     { label: 'Chủ nhà hàng', badge: 'bg-purple-100 text-purple-700' },
@@ -131,6 +131,9 @@ const MOCK_EMPLOYEES: Employee[] = [
 // PAGE COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function EmployeesPage() {
+  const { user } = useAuth()
+  const branchId = user?.branchId || ''
+
   const [tab, setTab]               = useState<PageTab>('employees')
   const [employees, setEmployees]   = useState<Employee[]>([])
   const [loadingEmps, setLoadingEmps] = useState(true)
@@ -147,18 +150,20 @@ export default function EmployeesPage() {
 
   // Load employees from API
   useEffect(() => {
-    api.get(`/api/employees/branch/${BRANCH_ID}`)
+    if (!branchId) return
+    api.get(`/api/employees/branch/${branchId}`)
       .then(r => setEmployees(r.data))
       .catch(() => setEmployees(MOCK_EMPLOYEES))
       .finally(() => setLoadingEmps(false))
-  }, [])
+  }, [branchId])
 
   const createEmployee = async (e: React.FormEvent) => {
     e.preventDefault()
-    try { await api.post('/api/employees', { branchId: BRANCH_ID, ...empForm }) } catch {}
+    if (!branchId) return
+    try { await api.post('/api/employees', { branchId: branchId, ...empForm }) } catch {}
     setShowAddEmp(false)
     setEmpForm({ fullName:'', phone:'', email:'', role:'waiter', hourlyRate:0 })
-    api.get(`/api/employees/branch/${BRANCH_ID}`).then(r => setEmployees(r.data)).catch(()=>{})
+    api.get(`/api/employees/branch/${branchId}`).then(r => setEmployees(r.data)).catch(()=>{})
   }
 
   const displayEmployees = useMemo(() =>

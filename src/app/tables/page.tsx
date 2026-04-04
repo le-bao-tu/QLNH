@@ -6,8 +6,7 @@ import { useTables, useUpdateTableStatus } from '@/hooks/useApi'
 import { Plus, Edit2, Trash2, RefreshCw, Grid3x3 } from 'lucide-react'
 import api from '@/lib/api'
 import { useQueryClient } from '@tanstack/react-query'
-
-const BRANCH_ID = '00000000-0000-0000-0000-000000000001'
+import { useAuth } from '@/lib/auth'
 
 interface Table {
   id: string
@@ -26,7 +25,10 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 export default function TablesPage() {
-  const { data: tables = [], refetch } = useTables(BRANCH_ID)
+  const { user } = useAuth()
+  const branchId = user?.branchId || ''
+
+  const { data: tables = [], refetch } = useTables(branchId)
   const updateStatus = useUpdateTableStatus()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
@@ -40,6 +42,7 @@ export default function TablesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!branchId) return
     setLoading(true)
     try {
       if (editTable) {
@@ -50,7 +53,7 @@ export default function TablesPage() {
         })
       } else {
         await api.post('/api/tables', {
-          branchId: BRANCH_ID,
+          branchId: branchId,
           tableNumber: parseInt(form.tableNumber),
           capacity: parseInt(form.capacity),
           note: form.note

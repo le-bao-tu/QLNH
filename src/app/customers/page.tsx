@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
-
-const RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
+import { useAuth } from '@/lib/auth'
 
 interface Customer {
   id: string
@@ -26,6 +25,9 @@ const tierConfig: Record<string, { label: string; color: string; icon: string }>
 }
 
 export default function CustomersPage() {
+  const { user } = useAuth()
+  const restaurantId = user?.restaurantId || ''
+
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -34,14 +36,15 @@ export default function CustomersPage() {
   const [form, setForm] = useState({ fullName: '', phone: '', email: '', gender: '', note: '' })
 
   const load = async (q?: string) => {
+    if (!restaurantId) return
     setLoading(true)
     try {
-      const { data } = await api.get(`/api/customers/restaurant/${RESTAURANT_ID}`, { params: { search: q } })
+      const { data } = await api.get(`/api/customers/restaurant/${restaurantId}`, { params: { search: q } })
       setCustomers(data)
     } catch { setCustomers([]) } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [restaurantId])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,7 +53,8 @@ export default function CustomersPage() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault()
-    await api.post('/api/customers', { restaurantId: RESTAURANT_ID, ...form })
+    if (!restaurantId) return
+    await api.post('/api/customers', { restaurantId: restaurantId, ...form })
     setShowModal(false)
     setForm({ fullName: '', phone: '', email: '', gender: '', note: '' })
     load()

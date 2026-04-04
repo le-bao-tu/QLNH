@@ -3,17 +3,22 @@
 import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
+import { useAuth } from '@/lib/auth'
 import { CreditCard, Search, Calendar, Landmark, Coins, Receipt, Wallet, User, ChevronRight, CheckCircle2 } from 'lucide-react'
 
 export default function PaymentsPage() {
+  const { user } = useAuth()
+  const branchId = user?.branchId || ''
+
   const [payments, setPayments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
 
   const loadPayments = async () => {
+    if (!branchId) return
     setLoading(true)
     try {
-      const { data } = await api.get('/api/payment/recent/branch/00000000-0000-0000-0000-000000000001')
+      const { data } = await api.get(`/api/payment/recent/branch/${branchId}`)
       setPayments(data)
     } catch {
       // Mock data if API is empty
@@ -29,7 +34,7 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     loadPayments()
-  }, [])
+  }, [branchId])
 
   const getMethodIcon = (method: string) => {
     switch(method.toLowerCase()) {

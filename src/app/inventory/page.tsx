@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
 
-const BRANCH_ID = '00000000-0000-0000-0000-000000000001'
-const RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
+import { useAuth } from '@/lib/auth'
 
 interface InventoryItem {
   id: string
@@ -27,6 +26,10 @@ interface Supplier {
 }
 
 export default function InventoryPage() {
+  const { user } = useAuth()
+  const branchId = user?.branchId || ''
+  const restaurantId = user?.restaurantId || ''
+
   const [items, setItems] = useState<InventoryItem[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [tab, setTab] = useState<'inventory' | 'suppliers'>('inventory')
@@ -37,17 +40,19 @@ export default function InventoryPage() {
   const [txForm, setTxForm] = useState({ type: 'import', quantityChange: 0, note: '' })
 
   const loadItems = async () => {
+    if (!branchId) return
     setLoading(true)
     try {
-      const { data } = await api.get(`/api/inventory/items/branch/${BRANCH_ID}`)
+      const { data } = await api.get(`/api/inventory/items/branch/${branchId}`)
       setItems(data)
     } catch { setItems([]) } finally { setLoading(false) }
   }
 
   const loadSuppliers = async () => {
+    if (!restaurantId) return
     setLoading(true)
     try {
-      const { data } = await api.get(`/api/inventory/suppliers/restaurant/${RESTAURANT_ID}`)
+      const { data } = await api.get(`/api/inventory/suppliers/restaurant/${restaurantId}`)
       setSuppliers(data)
     } catch { setSuppliers([]) } finally { setLoading(false) }
   }
@@ -55,14 +60,15 @@ export default function InventoryPage() {
   useEffect(() => {
     if (tab === 'inventory') loadItems()
     else loadSuppliers()
-  }, [tab])
+  }, [tab, branchId, restaurantId])
 
   const lowStock = items.filter(i => i.isLowStock)
 
   const createItem = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!branchId) return
     await api.post('/api/inventory/items', {
-      branchId: BRANCH_ID,
+      branchId: branchId,
       supplierId: itemForm.supplierId || null,
       name: itemForm.name, unit: itemForm.unit,
       minQuantity: itemForm.minQuantity, costPrice: itemForm.costPrice,
@@ -127,7 +133,7 @@ export default function InventoryPage() {
         {/* Inventory Tab */}
         {tab === 'inventory' && (
           loading ? (
-            <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"/></div>
+            <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
           ) : (
             <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
               <table className="w-full">
@@ -148,7 +154,7 @@ export default function InventoryPage() {
                     <tr key={item.id} className="border-b hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          {item.isLowStock && <span className="w-2 h-2 bg-red-500 rounded-full" title="Tồn kho thấp"/>}
+                          {item.isLowStock && <span className="w-2 h-2 bg-red-500 rounded-full" title="Tồn kho thấp" />}
                           <span className="font-medium text-gray-900">{item.name}</span>
                         </div>
                       </td>
@@ -175,7 +181,7 @@ export default function InventoryPage() {
         {/* Suppliers Tab */}
         {tab === 'suppliers' && (
           loading ? (
-            <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"/></div>
+            <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {suppliers.length === 0 ? (

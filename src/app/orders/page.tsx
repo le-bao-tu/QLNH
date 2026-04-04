@@ -5,8 +5,7 @@ import AuthLayout from '@/components/AuthLayout'
 import { useActiveOrders, useUpdateOrderStatus } from '@/hooks/useApi'
 import { ShoppingCart, Clock, CheckCircle, Filter } from 'lucide-react'
 import api from '@/lib/api'
-
-const BRANCH_ID = '00000000-0000-0000-0000-000000000001'
+import { useAuth } from '@/lib/auth'
 
 interface Order { id: string; tableNumber: number; status: string; subtotal: number; totalAmount: number; itemCount: number; createdAt: string }
 
@@ -20,7 +19,10 @@ const STATUS_MAP: Record<string, { label: string; className: string }> = {
 }
 
 export default function OrdersPage() {
-  const { data: orders = [], isLoading } = useActiveOrders(BRANCH_ID)
+  const { user } = useAuth()
+  const branchId = user?.branchId || ''
+
+  const { data: orders = [], isLoading } = useActiveOrders(branchId)
   const updateStatus = useUpdateOrderStatus()
   const [filterStatus, setFilterStatus] = useState('all')
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null)

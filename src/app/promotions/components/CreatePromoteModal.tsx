@@ -8,8 +8,7 @@ import {
     UtensilsCrossed,
     ChevronRight,
 } from 'lucide-react'
-
-const RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
+import { useAuth } from '@/lib/auth'
 
 interface Props {
     setShowModal: (isShow: boolean) => void
@@ -33,6 +32,9 @@ const DEFAULT_FORM = {
 }
 
 export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuccess }: Props) {
+    const { user } = useAuth()
+    const restaurantId = user?.restaurantId || ''
+
     const isEditMode = !!editPromotion
 
     const [form, setForm] = useState(DEFAULT_FORM)
@@ -82,14 +84,14 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
 
     // Fetch menu items when switching to item mode
     useEffect(() => {
-        if (isItemMode && menuItems.length === 0) {
+        if (isItemMode && menuItems.length === 0 && restaurantId) {
             setLoadingItems(true)
-            api.get(`/api/menu/items/restaurant/${RESTAURANT_ID}`)
+            api.get(`/api/menu/items/restaurant/${restaurantId}`)
                 .then(({ data }) => setMenuItems(data || []))
                 .catch(() => setMenuItems([]))
                 .finally(() => setLoadingItems(false))
         }
-    }, [isItemMode])
+    }, [isItemMode, restaurantId])
 
     const toggleItem = (id: string) => {
         setSelectedItemIds(prev =>
@@ -141,7 +143,7 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
             } else {
                 // Create
                 await api.post('/api/promotions', {
-                    restaurantId: RESTAURANT_ID,
+                    restaurantId: restaurantId,
                     ...form,
                     maxDiscount: form.maxDiscountAmount,
                     menuItemIds: menuItemIdsStr,

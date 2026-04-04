@@ -28,8 +28,6 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
-const BRANCH_ID = '00000000-0000-0000-0000-000000000001'
-const RESTAURANT_ID = '00000000-0000-0000-0000-000000000001'
 
 interface Order {
   id: string
