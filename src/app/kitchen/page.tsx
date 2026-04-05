@@ -25,7 +25,8 @@ interface KitchenOrder {
   quantity: number
   note?: string
   priority: number
-  status: 'pending' | 'cooking' | 'ready' | 'served'
+  status: 'unconfirmed' | 'pending' | 'cooking' | 'ready' | 'served'
+  source?: 'QR' | 'POS'
   receivedAt: string
   startedAt?: string
   completedAt?: string
@@ -37,12 +38,11 @@ export default function KitchenPage() {
 
   const [tickets, setTickets] = useState<KitchenOrder[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'pending' | 'cooking' | 'ready'>('all')
+  const [filter, setFilter] = useState<'all' | 'unconfirmed' | 'pending' | 'cooking' | 'ready'>('all')
 
   const loadTickets = async () => {
     if (!branchId) return
     try {
-      // In a real app, this should be a WebSocket/SignalR connection
       const { data } = await api.get(`/api/kitchen/branch/${branchId}`)
       setTickets(data)
     } catch {
@@ -54,7 +54,7 @@ export default function KitchenPage() {
 
   useEffect(() => {
     loadTickets()
-    const interval = setInterval(loadTickets, 10000) // Poll every 10s for demo
+    const interval = setInterval(loadTickets, 10000)
     return () => clearInterval(interval)
   }, [branchId])
 
@@ -76,6 +76,9 @@ export default function KitchenPage() {
     if (filter === 'all') return t.status !== 'served'
     return t.status === filter
   }).sort((a, b) => {
+    // Priority: Unconfirmed first if in 'all' view, then by priority/time
+    if (a.status === 'unconfirmed' && b.status !== 'unconfirmed') return -1
+    if (b.status === 'unconfirmed' && a.status !== 'unconfirmed') return 1
     if (b.priority !== a.priority) return b.priority - a.priority
     return new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime()
   })
@@ -103,19 +106,21 @@ export default function KitchenPage() {
           
           <div className="flex items-center gap-4">
              <div className="flex bg-slate-800 rounded-xl p-1 p-x-2 border border-slate-700/50">
-               {['all', 'pending', 'cooking', 'ready'].map(f => (
+               {['all', 'unconfirmed', 'pending', 'cooking', 'ready'].map(f => (
                  <button 
                   key={f}
                   onClick={() => setFilter(f as any)}
                   className={`px-6 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${filter === f ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
                  >
-                   {f === 'all' ? 'Tất cả' : f === 'pending' ? 'Cần làm' : f === 'cooking' ? 'Đang nấu' : 'Xong'}
+                   {f === 'all' ? 'Tất cả' : f === 'unconfirmed' ? 'Chờ duyệt' : f === 'pending' ? 'Cần làm' : f === 'cooking' ? 'Đang nấu' : 'Xong'}
                  </button>
                ))}
              </div>
              <button className="relative w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center hover:bg-slate-700 transition-all border border-slate-700/50">
                <Bell size={20} className="text-slate-300" />
-               <span className="absolute top-2 right-2 w-3 h-3 bg-red-600 rounded-full border-2 border-slate-800"></span>
+               {tickets.some(t => t.status === 'unconfirmed') && (
+                 <span className="absolute top-2 right-2 w-3 h-3 bg-red-600 rounded-full border-2 border-slate-800 animate-ping"></span>
+               )}
              </button>
           </div>
         </div>
@@ -140,6 +145,7 @@ export default function KitchenPage() {
                 <div 
                   key={ticket.id} 
                   className={`flex flex-col rounded-3xl overflow-hidden border-2 transition-all ${
+                    ticket.status === 'unconfirmed' ? 'border-red-600 bg-red-950/20 shadow-2xl shadow-red-950/40' :
                     ticket.status === 'cooking' ? 'border-orange-600 bg-orange-950/20 shadow-2xl shadow-orange-950/40' : 
                     ticket.status === 'ready' ? 'border-green-600 bg-green-950/10' : 
                     'border-slate-800 bg-slate-850/40'
@@ -147,6 +153,7 @@ export default function KitchenPage() {
                 >
                   {/* Ticket Header */}
                   <div className={`p-5 flex justify-between items-start ${
+                    ticket.status === 'unconfirmed' ? 'bg-red-600/10' :
                     ticket.status === 'cooking' ? 'bg-orange-600/10' : 
                     ticket.status === 'ready' ? 'bg-green-600/10' : 
                     'bg-slate-800/20'
@@ -158,8 +165,10 @@ export default function KitchenPage() {
                       </div>
                       <div>
                         <div className="flex items-center gap-1 mb-1">
-                          <Hash size={12} className="text-slate-500" />
-                          <span className="text-xs font-mono text-slate-400 truncate w-24">#{ticket.id.slice(0, 8)}</span>
+                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${ticket.source === 'QR' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                            {ticket.source || 'POS'}
+                          </span>
+                          <span className="text-xs font-mono text-slate-400 truncate w-20">#{ticket.id.slice(0, 8)}</span>
                         </div>
                         <div className={`flex items-center gap-1.5 font-black text-sm uppercase tracking-wider ${waitColor}`}>
                           <Timer size={14} />
@@ -191,6 +200,14 @@ export default function KitchenPage() {
 
                   {/* Ticket Footer / Actions */}
                   <div className="p-4 bg-slate-900/40 mt-auto border-t border-slate-800/50">
+                    {ticket.status === 'unconfirmed' && (
+                      <button 
+                        onClick={() => updateStatus(ticket.id, 'pending')}
+                        className="w-full py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all shadow-lg shadow-red-900/30 active:scale-95"
+                      >
+                        Chấp nhận đơn QR <CheckCircle2 size={18} />
+                      </button>
+                    )}
                     {ticket.status === 'pending' && (
                       <button 
                         onClick={() => updateStatus(ticket.id, 'cooking')}

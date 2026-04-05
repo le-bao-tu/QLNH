@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import { useTables, useUpdateTableStatus } from '@/hooks/useApi'
-import { Plus, Edit2, Trash2, RefreshCw, Grid3x3 } from 'lucide-react'
+import { Plus, Edit2, Trash2, RefreshCw, Grid3x3, QrCode } from 'lucide-react'
 import api from '@/lib/api'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth'
@@ -32,6 +32,7 @@ export default function TablesPage() {
   const updateStatus = useUpdateTableStatus()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
+  const [qrModal, setQrModal] = useState<Table | null>(null)
   const [editTable, setEditTable] = useState<Table | null>(null)
   const [form, setForm] = useState({ tableNumber: '', capacity: '4', note: '' })
   const [loading, setLoading] = useState(false)
@@ -87,6 +88,11 @@ export default function TablesPage() {
     reserved: { bg: '#fffbeb', border: '#fde68a', headerBg: '#fef3c7' },
     cleaning: { bg: '#eff6ff', border: '#bfdbfe', headerBg: '#dbeafe' },
   }[status] || { bg: '#f8fafc', border: '#e2e8f0', headerBg: '#f1f5f9' })
+
+  const getQRUrl = (table: Table) => {
+    if (typeof window === 'undefined') return ''
+    return `${window.location.origin}/order/${branchId}/${table.tableNumber}`
+  }
 
   return (
     <AuthLayout>
@@ -147,6 +153,9 @@ export default function TablesPage() {
                       Bàn {table.tableNumber}
                     </span>
                     <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setQrModal(table)} style={{ padding: 4, background: '#fff', border: '1px solid #e2e8f0' }} title="Mã QR gọi món">
+                        <QrCode size={13} color="#2563eb" />
+                      </button>
                       <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(table)} style={{ padding: 4 }}>
                         <Edit2 size={13} color="#64748b" />
                       </button>
@@ -237,7 +246,64 @@ export default function TablesPage() {
             </div>
           </div>
         )}
+
+        {/* QR Code Modal */}
+        {qrModal && (
+          <div style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100
+          }}>
+            <div className="card animate-fade-in" style={{ padding: 32, width: 360, maxWidth: '90vw', textAlign: 'center' }}>
+              <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2 style={{ fontSize: 18, fontWeight: 700 }}>Mã QR gọi món</h2>
+                <button onClick={() => setQrModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div style={{ background: '#f8fafc', padding: 24, borderRadius: 16, marginBottom: 20 }}>
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(getQRUrl(qrModal))}&size=250x250&bgcolor=ffffff`}
+                  alt="QR Code"
+                  style={{ width: '100%', height: 'auto', borderRadius: 8, border: '4px solid white' }}
+                />
+              </div>
+
+              <p style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Bàn số {qrModal.tableNumber}</p>
+              <p style={{ fontSize: 12, color: '#64748b', marginBottom: 20 }}>Khách hàng có thể quét mã này để đặt món</p>
+              
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => window.print()}>
+                  In mã QR
+                </button>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => setQrModal(null)}>
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AuthLayout>
+  )
+}
+
+function X(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
   )
 }

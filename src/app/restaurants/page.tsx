@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
-import { Building2, Save, Globe, Phone, Mail, MapPin, FileText, Share2, CheckCircle, AlertCircle } from 'lucide-react'
+import { Building2, Save, Globe, Phone, Mail, MapPin, FileText, Share2, CheckCircle, AlertCircle, CreditCard } from 'lucide-react'
 import { useRestaurant } from '@/hooks/useApi'
 import { useAuth } from '@/lib/auth'
 
@@ -201,6 +201,48 @@ export default function RestaurantPage() {
                       placeholder="123 Đường ABC, Quận 1, TP.HCM"
                     />
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bank Info for VietQR */}
+            <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100">
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <CreditCard className="text-blue-600" size={20} />
+                Thông tin thanh toán (VietQR)
+              </h2>
+              <p className="text-sm text-gray-500 mb-6 font-medium">Cấu hình thông tin ngân hàng để tự động tạo mã QR thanh toán Napas cho khách hàng.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Ngân hàng (Bank ID)</label>
+                  <input
+                    type="text"
+                    value={formData.bankId || ''}
+                    onChange={e => setFormData({...formData, bankId: e.target.value})}
+                    className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
+                    placeholder="VD: MB, VCB, ICB..."
+                  />
+                  <p className="text-[10px] text-gray-400 mt-2 px-1">Sử dụng mã BIN hoặc mã viết tắt của ngân hàng</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Số tài khoản</label>
+                  <input
+                    type="text"
+                    value={formData.accountNo || ''}
+                    onChange={e => setFormData({...formData, accountNo: e.target.value})}
+                    className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
+                    placeholder="Nhập số tài khoản ngân hàng"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Tên chủ tài khoản</label>
+                  <input
+                    type="text"
+                    value={formData.accountName || ''}
+                    onChange={e => setFormData({...formData, accountName: e.target.value})}
+                    className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium uppercase"
+                    placeholder="VD: NGUYEN VAN A"
+                  />
                 </div>
               </div>
             </div>
