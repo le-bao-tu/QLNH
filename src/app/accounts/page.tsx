@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 
 const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
-  Owner:     { label: 'Chủ sở hữu', color: 'text-purple-700', bg: 'bg-purple-100', icon: Shield },
+  owner:     { label: 'Chủ sở hữu', color: 'text-purple-700', bg: 'bg-purple-100', icon: Shield },
   manager:   { label: 'Quản lý',    color: 'text-blue-700',   bg: 'bg-blue-100',   icon: Users },
   cashier:   { label: 'Thu ngân',   color: 'text-green-700',  bg: 'bg-green-100',  icon: CreditCard },
   waiter:    { label: 'Phục vụ',    color: 'text-orange-700', bg: 'bg-orange-100', icon: User },

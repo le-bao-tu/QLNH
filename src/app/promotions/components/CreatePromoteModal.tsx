@@ -9,6 +9,8 @@ import {
     ChevronRight,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
+import { useBranches } from '@/hooks/useApi'
+import { CheckboxMultiSelect } from '@/components/CheckboxMultiSelect'
 
 interface Props {
     setShowModal: (isShow: boolean) => void
@@ -45,6 +47,10 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([])
     const [itemSearch, setItemSearch] = useState('')
 
+    // Chi nhánh
+    const { data: branches = [] } = useBranches(restaurantId)
+    const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([])
+
     const isItemMode = form.applyTo === 'item'
 
     // Khi editPromotion thay đổi, fill form
@@ -63,7 +69,7 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                 isVoucherRequired: false,
                 voucherCode: ''
             })
-            // Parse menuItemIds (JSON array string hoặc comma-separated)
+            // Parse menuItemIds
             if (editPromotion.menuItemIds) {
                 try {
                     const parsed = JSON.parse(editPromotion.menuItemIds)
@@ -76,9 +82,21 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
             } else {
                 setSelectedItemIds([])
             }
+            // Parse branchIds
+            if (editPromotion.branchIds) {
+                try {
+                    const parsed = JSON.parse(editPromotion.branchIds)
+                    setSelectedBranchIds(Array.isArray(parsed) ? parsed : [])
+                } catch {
+                    setSelectedBranchIds(editPromotion.branchIds.split(',').filter(Boolean))
+                }
+            } else {
+                setSelectedBranchIds([])
+            }
         } else {
             setForm(DEFAULT_FORM)
             setSelectedItemIds([])
+            setSelectedBranchIds([])
         }
     }, [editPromotion, visible])
 
@@ -115,8 +133,10 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
         setShowModal(false)
         setForm(DEFAULT_FORM)
         setSelectedItemIds([])
+        setSelectedBranchIds([])
         setItemSearch('')
     }
+
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -124,6 +144,10 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
         try {
             const menuItemIdsStr = isItemMode && selectedItemIds.length > 0
                 ? JSON.stringify(selectedItemIds)
+                : null
+
+            const branchIdsStr = selectedBranchIds.length > 0
+                ? JSON.stringify(selectedBranchIds)
                 : null
 
             if (isEditMode && editPromotion) {
@@ -139,6 +163,7 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                     startDate: form.startDate,
                     endDate: form.endDate,
                     menuItemIds: menuItemIdsStr,
+                    branchIds: branchIdsStr,
                 })
             } else {
                 // Create
@@ -147,6 +172,7 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                     ...form,
                     maxDiscount: form.maxDiscountAmount,
                     menuItemIds: menuItemIdsStr,
+                    branchIds: branchIdsStr,
                     ...(isItemMode ? { menuItemIds: menuItemIdsStr } : {})
                 })
             }
@@ -330,6 +356,17 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                                     </button>
                                 ))}
                             </div>
+                        </div>
+
+                        {/* Chi nhánh áp dụng (checkbox multi-select) */}
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">Chi nhánh áp dụng</label>
+                            <CheckboxMultiSelect
+                                options={branches as Array<{ id: string; name: string }>}
+                                value={selectedBranchIds}
+                                onChange={setSelectedBranchIds}
+                                placeholder="Chọn chi nhánh..."
+                            />
                         </div>
 
                         {/* Spacer push buttons to bottom */}

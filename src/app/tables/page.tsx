@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import AuthLayout from '@/components/AuthLayout'
-import { useTables, useUpdateTableStatus } from '@/hooks/useApi'
+import { useTables, useUpdateTableStatus, useBranches } from '@/hooks/useApi'
 import { Plus, Edit2, Trash2, RefreshCw, Grid3x3 } from 'lucide-react'
 import api from '@/lib/api'
 import { useQueryClient } from '@tanstack/react-query'
@@ -26,14 +26,21 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function TablesPage() {
   const { user } = useAuth()
-  const branchId = user?.branchId || ''
+  const isOwner = user?.role === 'owner'
+  const restaurantId = user?.restaurantId || ''
 
-  const { data: tables = [], refetch } = useTables(branchId)
+  // Owner có thể chọn chi nhánh, Manager lấy từ tài khoản
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')
+  const activeBranchId = isOwner ? selectedBranchId : (user?.branchId || '')
+
+  const { data: branches = [] } = useBranches(isOwner ? restaurantId : '')
+
+  const { data: tables = [], refetch } = useTables(activeBranchId)
   const updateStatus = useUpdateTableStatus()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editTable, setEditTable] = useState<Table | null>(null)
-  const [form, setForm] = useState({ tableNumber: '', capacity: '4', note: '' })
+  const [form, setForm] = useState({ tableNumber: '', capacity: '4', note: '', branchId: '' })
   const [loading, setLoading] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>('all')
 
@@ -42,7 +49,8 @@ export default function TablesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!branchId) return
+    const targetBranchId = isOwner ? form.branchId || selectedBranchId : (user?.branchId || '')
+    if (!targetBranchId) { alert('Vui lòng chọn chi nhánh!'); return }
     setLoading(true)
     try {
       if (editTable) {
@@ -53,7 +61,7 @@ export default function TablesPage() {
         })
       } else {
         await api.post('/api/tables', {
-          branchId: branchId,
+          branchId: targetBranchId,
           tableNumber: parseInt(form.tableNumber),
           capacity: parseInt(form.capacity),
           note: form.note
@@ -62,7 +70,7 @@ export default function TablesPage() {
       queryClient.invalidateQueries({ queryKey: ['tables'] })
       setShowForm(false)
       setEditTable(null)
-      setForm({ tableNumber: '', capacity: '4', note: '' })
+      setForm({ tableNumber: '', capacity: '4', note: '', branchId: '' })
     } catch (err) {
       console.error(err)
     }
@@ -71,7 +79,7 @@ export default function TablesPage() {
 
   const handleEdit = (table: Table) => {
     setEditTable(table)
-    setForm({ tableNumber: table.tableNumber.toString(), capacity: table.capacity.toString(), note: table.note || '' })
+    setForm({ tableNumber: table.tableNumber.toString(), capacity: table.capacity.toString(), note: table.note || '', branchId: '' })
     setShowForm(true)
   }
 
@@ -98,14 +106,28 @@ export default function TablesPage() {
               <Grid3x3 size={22} color="#2563eb" />
               Quản lý bàn
             </h1>
-            <p style={{ color: '#64748b', fontSize: 13 }}>{tables.length} bàn · Chi nhánh chính</p>
+            <p style={{ color: '#64748b', fontSize: 13 }}>{tables.length} bàn {activeBranchId ? `· Chi nhánh đã chọn` : ''}</p>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* Owner: chọn chi nhánh để xem bàn */}
+            {isOwner && (
+              <select
+                className="input"
+                style={{ width: 200, height: 36, fontSize: 13 }}
+                value={selectedBranchId}
+                onChange={e => setSelectedBranchId(e.target.value)}
+              >
+                <option value="all">-- Chọn chi nhánh --</option>
+                {(branches as Array<{id: string; name: string}>).map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            )}
             <button className="btn btn-secondary" onClick={() => refetch()}>
               <RefreshCw size={15} />
               Làm mới
             </button>
-            <button className="btn btn-primary" onClick={() => { setShowForm(true); setEditTable(null); setForm({ tableNumber: '', capacity: '4', note: '' }) }} id="add-table-btn">
+            <button className="btn btn-primary" onClick={() => { setShowForm(true); setEditTable(null); setForm({ tableNumber: '', capacity: '4', note: '', branchId: '' }) }} id="add-table-btn">
               <Plus size={15} />
               Thêm bàn
             </button>
@@ -210,6 +232,23 @@ export default function TablesPage() {
                 {editTable ? 'Sửa thông tin bàn' : 'Thêm bàn mới'}
               </h2>
               <form onSubmit={handleSubmit}>
+                {/* Owner: ch\u1ecdn chi nh\u00e1nh khi t\u1ea1o b\u00e0n m\u1edbi */}
+                {isOwner && !editTable && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Chi nhánh *</label>
+                    <select
+                      className="input"
+                      required
+                      value={form.branchId}
+                      onChange={e => setForm(p => ({ ...p, branchId: e.target.value }))}
+                    >
+                      <option value="">-- Chọn chi nhánh --</option>
+                      {(branches as Array<{id: string; name: string}>).map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Số bàn *</label>
                   <input className="input" type="number" required value={form.tableNumber}
