@@ -12,6 +12,7 @@ interface Promotion {
   endDate: string
   isActive: boolean
   menuItemIds?: string
+  branchIds?: string
   voucherCodes?: VoucherCode[]
 }
 

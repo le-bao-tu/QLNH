@@ -2,14 +2,15 @@
 
 import { useState, useRef, JSX } from 'react'
 import AuthLayout from '@/components/AuthLayout'
-import { useMenuCategories, useMenuItems, useCreateMenuItem, useUpdateMenuItem, useDeleteMenuItem } from '@/hooks/useApi'
+import { useMenuCategories, useMenuItems, useCreateMenuItem, useUpdateMenuItem, useDeleteMenuItem, useBranches } from '@/hooks/useApi'
 import { Plus, Edit2, Trash2, BookOpen, Search, ToggleLeft, ToggleRight, ImagePlus, X, Loader2 } from 'lucide-react'
 import api from '@/lib/api'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth'
+import { CheckboxMultiSelect } from '@/components/CheckboxMultiSelect'
 
 interface MenuComboItem { id: string; name: string; price: number; imageUrl?: string; quantity: number }
-interface MenuItem { id: string; name: string; price: number; discountPrice?: number; discountType?: string; discountValue?: number; imageUrl?: string; unit: string; isAvailable: boolean; categoryId: string; categoryName: string; description: string; sortOrder: number; itemType: string; comboItems?: MenuComboItem[] }
+interface MenuItem { id: string; name: string; price: number; discountPrice?: number; discountType?: string; discountValue?: number; imageUrl?: string; unit: string; isAvailable: boolean; categoryId: string; categoryName: string; description: string; sortOrder: number; itemType: string; comboItems?: MenuComboItem[], branchIds?: string }
 interface MenuCategory { id: string; name: string; sortOrder: number }
 
 export default function MenuPage() {
@@ -18,10 +19,14 @@ export default function MenuPage() {
 
   const { data: categories = [] } = useMenuCategories(restaurantId)
   const { data: items = [], isLoading } = useMenuItems(restaurantId)
+  const { data: branches = [] } = useBranches(restaurantId)
   const createItem = useCreateMenuItem()
   const updateItem = useUpdateMenuItem()
   const deleteItem = useDeleteMenuItem()
   const queryClient = useQueryClient()
+
+  console.log(branches);
+
 
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [search, setSearch] = useState('')
@@ -33,6 +38,7 @@ export default function MenuPage() {
   const [itemForm, setItemForm] = useState<{ name: string; price: string; description: string; unit: string; categoryId: string; sortOrder: string; imageUrl: string; itemType: string; comboItemIds: string[] }>({
     name: '', price: '', description: '', unit: 'phần', categoryId: '', sortOrder: '0', imageUrl: '', itemType: 'single', comboItemIds: []
   })
+  const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string>('')
@@ -89,6 +95,8 @@ export default function MenuPage() {
         }
       }
 
+      const branchIdsStr = selectedBranchIds.length > 0 ? JSON.stringify(selectedBranchIds) : null
+
       const payload = {
         ...itemForm,
         imageUrl: finalImageUrl,
@@ -96,13 +104,14 @@ export default function MenuPage() {
         sortOrder: parseInt(itemForm.sortOrder),
       }
       if (editItem) {
-        await updateItem.mutateAsync({ id: editItem.id, ...payload })
+        await updateItem.mutateAsync({ id: editItem.id, ...payload, branchIds: branchIdsStr })
       } else {
-        await createItem.mutateAsync(payload)
+        await createItem.mutateAsync({ ...payload, restaurantId, branchIds: branchIdsStr })
       }
       setShowItemForm(false)
       setEditItem(null)
       setItemForm({ name: '', price: '', description: '', unit: 'phần', categoryId: '', sortOrder: '0', imageUrl: '', itemType: 'single', comboItemIds: [] })
+      setSelectedBranchIds([])
       setImageFile(null)
       setImagePreview('')
     } finally { setSaving(false) }
@@ -115,6 +124,7 @@ export default function MenuPage() {
       unit: item.unit, categoryId: item.categoryId, sortOrder: item.sortOrder.toString(),
       imageUrl: item.imageUrl || '', itemType: item.itemType || 'single', comboItemIds: item.comboItems?.map(c => c.id) || []
     })
+    setSelectedBranchIds(item.branchIds ? JSON.parse(item.branchIds) : [])
     setImageFile(null)
     setImagePreview(item.imageUrl || '')
     setShowItemForm(true)
@@ -408,6 +418,17 @@ export default function MenuPage() {
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  {/* Chi nhánh áp dụng */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 5, color: '#374151' }}>Chi nhánh áp dụng</label>
+                    <CheckboxMultiSelect
+                      options={branches as Array<{ id: string; name: string }>}
+                      value={selectedBranchIds}
+                      onChange={setSelectedBranchIds}
+                      placeholder="Chọn chi nhánh..."
+                    />
                   </div>
 
                   <div style={{ flex: 1 }} />

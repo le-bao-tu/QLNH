@@ -30,21 +30,22 @@ const navItems = [
   { href: '/orders', label: 'Đơn hàng', icon: ShoppingCart, roles: [] },
   { href: '/tables', label: 'Quản lý bàn', icon: BookOpen, roles: [] },
   { href: '/reservations', label: 'Đặt bàn', icon: CalendarDays, roles: [] },
-  { href: '/menu', label: 'Thực đơn', icon: BookOpen, roles: ['Owner', 'manager'] },
-  { href: '/payments', label: 'Thanh toán', icon: CreditCard, roles: ['Owner', 'manager', 'cashier'] },
-  { href: '/promotions', label: 'Khuyến mãi', icon: TicketPercent, roles: ['Owner', 'manager'] },
-  // { href: '/customers', label: 'Khách hàng', icon: Users, roles: ['Owner', 'manager', 'cashier'] },
-  // { href: '/employees', label: 'Nhân viên', icon: UserRoundCheck, roles: ['Owner', 'manager'] },
-  // { href: '/inventory', label: 'Kho hàng', icon: Package, roles: ['Owner', 'manager'] },
+  { href: '/menu', label: 'Thực đơn', icon: BookOpen, roles: ['owner'] },
+  { href: '/payments', label: 'Thanh toán', icon: CreditCard, roles: ['owner', 'manager', 'cashier'] },
+  { href: '/promotions', label: 'Khuyến mãi', icon: TicketPercent, roles: ['owner'] },
+  // { href: '/customers', label: 'Khách hàng', icon: Users, roles: ['owner', 'manager', 'cashier'] },
+  // { href: '/employees', label: 'Nhân viên', icon: UserRoundCheck, roles: ['owner', 'manager'] },
+  // { href: '/inventory', label: 'Kho hàng', icon: Package, roles: ['owner', 'manager'] },
 
   // Owner only
-  { href: '/accounts', label: 'Tài khoản', icon: KeyRound, roles: ['Owner', 'manager'] },
-  { href: '/restaurants', label: 'Nhà hàng', icon: Building2, roles: ['Owner'] },
-  { href: '/branches', label: 'Chi nhánh', icon: GitBranch, roles: ['Owner', 'manager'] },
-  { href: '/audit', label: 'Audit Log', icon: History, roles: ['Owner'] },
+  { href: '/accounts', label: 'Tài khoản', icon: KeyRound, roles: ['owner', 'manager'] },
+  { href: '/restaurants', label: 'Nhà hàng', icon: Building2, roles: ['owner'] },
+  { href: '/branches', label: 'Chi nhánh', icon: GitBranch, roles: ['owner', 'manager'] },
+  { href: '/audit', label: 'Audit Log', icon: History, roles: ['owner'] },
 ]
 
 const ROLE_LABEL: Record<string, string> = {
+  owner: 'Chủ sở hữu',
   Owner: 'Chủ sở hữu',
   manager: 'Quản lý',
   cashier: 'Thu ngân',
@@ -57,9 +58,11 @@ export default function Sidebar() {
   const pathname = usePathname()
   const { user, logout } = useAuth()
 
-  const visibleItems = navItems.filter(item =>
-    item.roles.length === 0 || item.roles.includes(user?.role || '')
-  )
+  const visibleItems = navItems.filter(item => {
+    if (item.roles.length === 0) return true;
+    const userRole = (user?.role || '').toLowerCase();
+    return item.roles.some(r => r.toLowerCase() === userRole);
+  })
 
   return (
     <div className="sidebar">

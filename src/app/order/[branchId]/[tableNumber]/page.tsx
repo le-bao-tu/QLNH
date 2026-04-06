@@ -29,6 +29,7 @@ export default function GuestOrderPage({ params }: { params: Promise<{ branchId:
   // For the demo, let's look for a table first to get its current status.
   
   const [restaurantId, setRestaurantId] = useState<string>('')
+  const [error, setError] = useState<string>('')
   const [cart, setCart] = useState<any[]>([])
   const [ordered, setOrdered] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -41,17 +42,37 @@ export default function GuestOrderPage({ params }: { params: Promise<{ branchId:
   useEffect(() => {
     if (!branchId) return
     setLoading(true)
-    // Fetch branch details directly by ID to get the restaurantId
-    api.get(`/api/branches/${branchId}`)
+    setError('')
+    console.log('Fetching branch:', branchId)
+    
+    // Set a timeout to abort if server doesn't respond
+    const timer = setTimeout(() => {
+      if (loading) {
+        setError('Kết nối máy chủ bị quá hạn (Timeout). Vui lòng kiểm tra Internet.')
+        setLoading(false)
+      }
+    }, 10000)
+
+    api.get(`/api/branches/${branchId}`, { timeout: 8000 })
       .then(({ data }) => {
+        clearTimeout(timer)
         if (data && data.restaurantId) {
           setRestaurantId(data.restaurantId)
+          setLoading(false)
+        } else {
+          setError('Không tìm thấy thông tin chi nhánh hợp lệ.')
+          setLoading(false)
         }
       })
       .catch(err => {
+        clearTimeout(timer)
         console.error('Failed to resolve restaurant from branch:', err)
+        const errMsg = err.code === 'ECONNABORTED' ? 'Máy chủ không phản hồi (Timeout)' : 'Chi nhánh không tồn tại hoặc lỗi kết nối.'
+        setError(errMsg)
+        setLoading(false)
       })
-      .finally(() => setLoading(false))
+      
+    return () => clearTimeout(timer)
   }, [branchId])
 
   const addToCart = (item: any) => {
@@ -69,13 +90,11 @@ export default function GuestOrderPage({ params }: { params: Promise<{ branchId:
     }).filter(c => c.quantity > 0))
   }
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const subtotal = cart.reduce((sum, item) => sum + (item.basePrice || item.price) * item.quantity, 0)
 
   const handleOrder = async () => {
     setLoading(true)
     try {
-      // In a real guest flow, we'd use a public endpoint
-      // For this demo, we'll POST to the standard order endpoint
       await api.post('/api/orders', {
         branchId,
         tableNumber: parseInt(tableNumber),
@@ -91,11 +110,34 @@ export default function GuestOrderPage({ params }: { params: Promise<{ branchId:
     }
   }
 
-  if (loading && !restaurantId) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+  if (loading) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
       <div className="text-center">
-        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-gray-500 font-bold">Đang tải menu...</p>
+        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
+        <p className="text-gray-900 font-black uppercase tracking-widest text-sm">Đang kết nối thực đơn...</p>
+        <p className="text-gray-400 text-[10px] mt-4 font-mono break-all opacity-50">
+          Branch: {branchId || 'waiting...'} <br/>
+          Table: {tableNumber || 'waiting...'}
+        </p>
+      </div>
+    </div>
+  )
+
+  if (error) return (
+    <div className="min-h-screen bg-white p-8 flex flex-col items-center justify-center text-center">
+      <div className="w-24 h-24 bg-red-100 text-red-600 rounded-[2.5rem] flex items-center justify-center mb-6 shadow-xl shadow-red-100">
+        <Info size={48} />
+      </div>
+      <h1 className="text-2xl font-black text-gray-900 mb-2 uppercase tracking-tight tracking-tighter">Lỗi kết nối</h1>
+      <p className="text-gray-500 mb-8 max-w-xs mx-auto text-sm">{error}</p>
+      <div className="w-full space-y-3">
+        <button onClick={() => window.location.reload()} className="w-full max-w-xs py-4 bg-gray-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl">
+          Thử lại
+        </button>
+        <p className="text-[10px] font-mono text-gray-300 break-all px-4">
+          ID: {branchId} <br/>
+          API: {api.defaults.baseURL || 'relative'}
+        </p>
       </div>
     </div>
   )

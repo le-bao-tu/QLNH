@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
-import { useTables, useUpdateTableStatus } from '@/hooks/useApi'
+import { useTables, useUpdateTableStatus, useBranches } from '@/hooks/useApi'
 import { Plus, Edit2, Trash2, RefreshCw, Grid3x3, QrCode } from 'lucide-react'
 import api from '@/lib/api'
 import { useQueryClient } from '@tanstack/react-query'
@@ -15,6 +15,7 @@ interface Table {
   status: string
   note?: string
   currentOrderId?: string
+  branchId?: string
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -26,15 +27,30 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function TablesPage() {
   const { user } = useAuth()
-  const branchId = user?.branchId || ''
+  const isOwner = user?.role?.toLowerCase() === 'owner'
+  const restaurantId = user?.restaurantId || ''
 
-  const { data: tables = [], refetch } = useTables(branchId)
+  // Owner có thể chọn chi nhánh, Manager lấy từ tài khoản
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')
+  const activeBranchId = isOwner ? selectedBranchId : (user?.branchId || '')
+
+  const { data: branches = [] } = useBranches(isOwner ? restaurantId : '')
+
+
+  // T\u1ef1 đ\u1ed9ng ch\u1ecdn chi nh\u00e1nh đầu ti\u00ean cho Owner n\u1ebfu chưa ch\u1ecdn
+  useEffect(() => {
+    if (isOwner && !selectedBranchId && branches.length > 0) {
+      setSelectedBranchId(branches[0].id)
+    }
+  }, [isOwner, selectedBranchId, branches])
+
+  const { data: tables = [], refetch } = useTables(activeBranchId)
   const updateStatus = useUpdateTableStatus()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [qrModal, setQrModal] = useState<Table | null>(null)
   const [editTable, setEditTable] = useState<Table | null>(null)
-  const [form, setForm] = useState({ tableNumber: '', capacity: '4', note: '' })
+  const [form, setForm] = useState({ tableNumber: '', capacity: '4', note: '', branchId: '' })
   const [loading, setLoading] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>('all')
 
@@ -43,36 +59,52 @@ export default function TablesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!branchId) return
+    const targetBranchId = isOwner ? form.branchId || selectedBranchId : (user?.branchId || '')
+    
+    if (!targetBranchId || targetBranchId === 'all') {
+      alert('Vui lòng chọn chi nhánh!')
+      return
+    }
+
+    const tableNo = parseInt(form.tableNumber)
+    const cap = parseInt(form.capacity)
+
+    if (isNaN(tableNo) || isNaN(cap)) {
+      alert('Số bàn và sức chứa phải là số hợp lệ!')
+      return
+    }
+
     setLoading(true)
     try {
       if (editTable) {
         await api.put(`/api/tables/${editTable.id}`, {
-          tableNumber: parseInt(form.tableNumber),
-          capacity: parseInt(form.capacity),
+          tableNumber: tableNo,
+          capacity: cap,
           note: form.note
         })
       } else {
         await api.post('/api/tables', {
-          branchId: branchId,
-          tableNumber: parseInt(form.tableNumber),
-          capacity: parseInt(form.capacity),
+          branchId: targetBranchId,
+          tableNumber: tableNo,
+          capacity: cap,
           note: form.note
         })
       }
       queryClient.invalidateQueries({ queryKey: ['tables'] })
       setShowForm(false)
       setEditTable(null)
-      setForm({ tableNumber: '', capacity: '4', note: '' })
-    } catch (err) {
+      setForm({ tableNumber: '', capacity: '4', note: '', branchId: '' })
+    } catch (err: any) {
       console.error(err)
+      const msg = err.response?.data?.message || 'Có lỗi xảy ra khi lưu thông tin bàn'
+      alert(msg)
     }
     setLoading(false)
   }
 
   const handleEdit = (table: Table) => {
     setEditTable(table)
-    setForm({ tableNumber: table.tableNumber.toString(), capacity: table.capacity.toString(), note: table.note || '' })
+    setForm({ tableNumber: table.tableNumber.toString(), capacity: table.capacity.toString(), note: table.note || '', branchId: '' })
     setShowForm(true)
   }
 
@@ -91,7 +123,7 @@ export default function TablesPage() {
 
   const getQRUrl = (table: Table) => {
     if (typeof window === 'undefined') return ''
-    return `${window.location.origin}/order/${branchId}/${table.tableNumber}`
+    return `${window.location.origin}/order/${table.branchId}/${table.tableNumber}`
   }
 
   return (
@@ -104,14 +136,14 @@ export default function TablesPage() {
               <Grid3x3 size={22} color="#2563eb" />
               Quản lý bàn
             </h1>
-            <p style={{ color: '#64748b', fontSize: 13 }}>{tables.length} bàn · Chi nhánh chính</p>
+            <p style={{ color: '#64748b', fontSize: 13 }}>{tables.length} bàn {activeBranchId ? `· Chi nhánh đang xem` : ''}</p>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button className="btn btn-secondary" onClick={() => refetch()}>
               <RefreshCw size={15} />
               Làm mới
             </button>
-            <button className="btn btn-primary" onClick={() => { setShowForm(true); setEditTable(null); setForm({ tableNumber: '', capacity: '4', note: '' }) }} id="add-table-btn">
+            <button className="btn btn-primary" onClick={() => { setShowForm(true); setEditTable(null); setForm({ tableNumber: '', capacity: '4', note: '', branchId: '' }) }} id="add-table-btn">
               <Plus size={15} />
               Thêm bàn
             </button>
@@ -219,6 +251,23 @@ export default function TablesPage() {
                 {editTable ? 'Sửa thông tin bàn' : 'Thêm bàn mới'}
               </h2>
               <form onSubmit={handleSubmit}>
+                {/* Owner: ch\u1ecdn chi nh\u00e1nh khi t\u1ea1o b\u00e0n m\u1edbi */}
+                {isOwner && !editTable && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Chi nhánh *</label>
+                    <select
+                      className="input"
+                      required
+                      value={form.branchId}
+                      onChange={e => setForm(p => ({ ...p, branchId: e.target.value }))}
+                    >
+                      <option value="">-- Chọn chi nhánh --</option>
+                      {(branches as Array<{id: string; name: string}>).map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Số bàn *</label>
                   <input className="input" type="number" required value={form.tableNumber}
