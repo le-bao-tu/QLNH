@@ -35,6 +35,7 @@ import { useAuth } from '@/lib/auth'
 import InvoicePrintModal, { type InvoiceData } from '@/components/InvoicePrintModal'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { useToast } from '@/hooks/useToast'
+import { logUserAction, AuditModules } from '@/lib/audit'
 
 interface CartItem {
   id: string
@@ -238,6 +239,12 @@ export default function POSPage() {
     try {
       const { data: promo } = await api.get(`/api/promotions/vouchers/validate`, { params: { code: voucherCode, orderAmount: subtotal } })
       toast.success('Áp dụng mã giảm giá thành công')
+      await logUserAction({
+        action: `Áp dụng mã giảm giá: ${voucherCode}`,
+        module: AuditModules.PROMOTION,
+        targetId: promo.promotionId,
+        newData: promo
+      })
       setAppliedPromotion(promo)
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Mã không hợp lệ')
@@ -259,6 +266,12 @@ export default function POSPage() {
         await createOrder.mutateAsync({ tableId: selectedTable.id, customerId: selectedCustomer?.id, guestCount: 1, note: orderNote, voucherCode: appliedPromotion?.code, items: newCart.map(item => ({ menuItemId: item.id, quantity: item.quantity, note: item.note })) })
       }
       setNewCart([]); setSelectedCustomer(null); setAppliedPromotion(null); setVoucherCode(''); setOrderSuccess(true);
+      await logUserAction({
+        action: `Gửi yêu cầu chế biến - Bàn ${selectedTable.tableNumber}`,
+        module: AuditModules.POS,
+        targetId: selectedTable.currentOrderId || undefined,
+        newData: { items: newCart, note: orderNote }
+      })
       refetchTables() 
       setTimeout(() => setOrderSuccess(false), 3000)
     } finally { setLoading(false) }
@@ -292,6 +305,12 @@ export default function POSPage() {
       setVoucherCode('')
       setSelectedCustomer(null)
       toast.success('Thanh toán thành công')
+      await logUserAction({
+        action: `Thanh toán thành công - Bàn ${selectedTable.tableNumber}`,
+        module: AuditModules.POS,
+        targetId: orderId,
+        newData: { total, method: 'Tiền mặt', customer: selectedCustomer?.fullName }
+      })
     } catch (err) {
       toast.error('Có lỗi xảy ra khi thanh toán')
     } finally {
@@ -336,6 +355,12 @@ export default function POSPage() {
 
       setInvoiceData(invoice)
       setShowInvoice(true)
+      await logUserAction({
+        action: `In hóa đơn - Bàn ${selectedTable.tableNumber}`,
+        module: AuditModules.POS,
+        targetId: orderId,
+        newData: { total: invoice.totalAmount }
+      })
     } catch(err) {
       console.error(err)
       toast.error("Không thể tải hóa đơn")

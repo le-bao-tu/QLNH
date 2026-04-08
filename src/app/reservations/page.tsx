@@ -25,6 +25,7 @@ import {
 import { SelectBox } from '@/components/SelectBox'
 import { useToast } from '@/hooks/useToast'
 import { ConfirmModal } from '@/components/ConfirmModal'
+import { logUserAction, AuditModules } from '@/lib/audit'
 
 interface Reservation {
   id: string
@@ -108,6 +109,12 @@ export default function ReservationsPage() {
         setSelectedTableIdForSeat('')
       }
       toast.success('Đã cập nhật trạng thái đặt bàn')
+      await logUserAction({
+        action: `Cập nhật đặt bàn - ID: ${id.substring(0,8)}... sang ${statusConfig[status]?.label || status}`,
+        module: AuditModules.RESERVATION,
+        targetId: id,
+        newData: { status, tableId }
+      })
       load()
     } catch (err: any) {
       console.error(err)
@@ -137,6 +144,11 @@ export default function ReservationsPage() {
       setShowModal(false)
       setForm({ guestName: '', guestPhone: '', partySize: 2, reservedAt: '', note: '', branchId: '' })
       toast.success('Đã tạo đặt bàn thành công')
+      await logUserAction({
+        action: `Tạo mới đặt bàn cho khách: ${form.guestName}`,
+        module: AuditModules.RESERVATION,
+        newData: { ...form, branchId: targetBranchId }
+      })
       load()
     } catch (err: any) {
       console.error(err)
