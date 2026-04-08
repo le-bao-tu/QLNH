@@ -18,6 +18,8 @@ import {
   CheckCircle2
 } from 'lucide-react'
 import { SelectBox } from '@/components/SelectBox'
+import { useAuth } from '@/lib/auth'
+import { useBranches } from '@/hooks/useApi'
 
 interface AuditLog {
   id: string
@@ -25,7 +27,7 @@ interface AuditLog {
   userName?: string
   action: string // Create, Update, Delete, Login, etc.
   module: string // Order, Menu, Employee, etc.
-  entityId?: string
+  targetId?: string
   oldData?: string // JSON string
   newData?: string // JSON string
   ipAddress?: string
@@ -44,6 +46,13 @@ const modules = [
 ]
 
 export default function AuditLogsPage() {
+  const { user } = useAuth()
+  const isOwner = user?.role?.toLowerCase() === 'owner'
+  const restaurantId = user?.restaurantId || ''
+
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('')
+  const { data: branches = [] } = useBranches(isOwner ? restaurantId : '')
+
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -61,7 +70,8 @@ export default function AuditLogsPage() {
           page,
           pageSize,
           search,
-          module: module === 'All' ? undefined : module
+          module: module === 'All' ? undefined : module,
+          branchId: isOwner ? selectedBranchId : undefined
         }
       })
       setLogs(data.items || data) // Backend might return { items: [], total: 0 } or just []
@@ -74,7 +84,7 @@ export default function AuditLogsPage() {
 
   useEffect(() => {
     loadLogs()
-  }, [page, module])
+  }, [page, module, selectedBranchId])
 
   const getActionColor = (action: string) => {
     const a = action.toLowerCase()
@@ -113,6 +123,17 @@ export default function AuditLogsPage() {
             />
           </div>
           <div className="flex items-center gap-4 w-full md:w-auto">
+            {isOwner && (
+              <div className="w-full md:w-64">
+                <SelectBox 
+                  options={[{id: '', name: 'Tất cả chi nhánh'}, ...branches]} 
+                  optionLabel='name' 
+                  optionValue='id' 
+                  onChange={val => setSelectedBranchId(val)} 
+                  value={selectedBranchId}
+                />
+              </div>
+            )}
             <div className="relative w-full md:w-48">
               <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <SelectBox options={modules} optionLabel='name' optionValue='id' onChange={val => setModule(val)} value={module} />
@@ -194,7 +215,7 @@ export default function AuditLogsPage() {
                     </td>
                     <td className="px-6 py-5">
                       <p className="text-sm text-gray-500 truncate max-w-[200px]">
-                        {log.entityId ? `ID: ${log.entityId}` : 'Hành động chung'}
+                        {log.targetId ? `ID: ${log.targetId}` : 'Hành động chung'}
                       </p>
                       <button className="text-blue-600 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 mt-1">
                         Xem chi tiết JSON
@@ -240,7 +261,7 @@ export default function AuditLogsPage() {
                   </div>
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Chi tiết thay đổi dữ liệu</h2>
-                    <p className="text-gray-500 text-sm">Entity ID: {selectedLog.entityId || 'Not applicable'}</p>
+                    <p className="text-gray-500 text-sm">Entity ID: {selectedLog.targetId || 'Not applicable'}</p>
                   </div>
                 </div>
                 <button onClick={() => setSelectedLog(null)} className="bg-white hover:bg-gray-100 text-gray-400 w-12 h-12 rounded-2xl border border-gray-100 flex items-center justify-center transition-all shadow-sm">

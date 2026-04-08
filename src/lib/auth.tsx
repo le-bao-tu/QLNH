@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import api from '@/lib/api'
 import { set } from 'zod'
 import { jwtDecode } from 'jwt-decode'
+import { logUserAction, AuditModules } from '@/lib/audit'
 
 // ⚡ DEV ONLY: Đặt thành null để bật tính năng đăng nhập thật
 const FAKE_USER: User | null = null
@@ -81,6 +82,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log(userData);
         
         setUser(userData)
+        await logUserAction({
+          action: `Đăng nhập hệ thống: ${userData.fullName} (${userData.role})`,
+          module: AuditModules.AUTH
+        })
       }
     } finally {
       setIsLoading(false)
@@ -92,10 +97,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const logout = async () => {
-    await api.post('/api/auth/logout')
+    const userName = user?.fullName || 'Người dùng'
     localStorage.removeItem('accessToken')
     localStorage.removeItem('user')
     setUser(null)
+    await logUserAction({
+      action: `Đăng xuất khỏi hệ thống: ${userName}`,
+      module: AuditModules.AUTH
+    })
     window.location.href = '/login'
   }
 

@@ -66,15 +66,19 @@ export default function AccountsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null)
   const toast = useToast()
 
-  const isOwner = user?.role === 'owner'
-  const isManager = user?.role === 'manager' || isOwner
+  const isOwner = user?.role?.toLowerCase() === 'owner'
+  const isManager = user?.role?.toLowerCase() === 'manager' || isOwner
+
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')
+  const activeBranchId = isOwner ? selectedBranchId : (user?.branchId || '')
 
   const fetchData = useCallback(async () => {
     if (!restaurantId) return
     setLoading(true)
     try {
+      const branchParam = activeBranchId ? `&branchId=${activeBranchId}` : ''
       const [accRes, brRes] = await Promise.all([
-        api.get(`/api/auth/users?restaurantId=${restaurantId}`),
+        api.get(`/api/auth/users?restaurantId=${restaurantId}${branchParam}`),
         api.get(`/api/branches/restaurant/${restaurantId}`)
       ])
       setAccounts(accRes.data)
@@ -90,7 +94,14 @@ export default function AccountsPage() {
     }
   }, [restaurantId])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => { fetchData() }, [fetchData, activeBranchId])
+
+  // Tự động chọn chi nhánh đầu tiên cho Owner nếu chưa chọn
+  useEffect(() => {
+    if (isOwner && !selectedBranchId && branches.length > 0) {
+      setSelectedBranchId(branches[0].id)
+    }
+  }, [isOwner, selectedBranchId, branches])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -147,13 +158,26 @@ export default function AccountsPage() {
             <p className="text-gray-500 mt-1">Tạo và phân quyền tài khoản cho nhân viên của nhà hàng</p>
           </div>
           {isManager && (
-            <button
-              onClick={() => setShowCreate(true)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95"
-            >
-              <UserPlus size={20} />
-              Thêm tài khoản
-            </button>
+            <div className="flex items-center gap-3">
+              {isOwner && (
+                <div className="w-64">
+                   <SelectBox 
+                    options={[{id: '', name: 'Tất cả chi nhánh'}, ...branches]} 
+                    optionLabel='name' 
+                    optionValue='id' 
+                    onChange={val => setSelectedBranchId(val)} 
+                    value={selectedBranchId}
+                   />
+                </div>
+              )}
+              <button
+                onClick={() => setShowCreate(true)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95 whitespace-nowrap"
+              >
+                <UserPlus size={20} />
+                Thêm tài khoản
+              </button>
+            </div>
           )}
         </div>
 

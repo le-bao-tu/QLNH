@@ -8,6 +8,7 @@ import api from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useToast } from '@/hooks/useToast'
 import { ConfirmModal } from '@/components/ConfirmModal'
+import { logUserAction, AuditModules } from '@/lib/audit'
 
 export default function BranchesPage() {
   const { user } = useAuth()
@@ -38,9 +39,21 @@ export default function BranchesPage() {
     try {
       if (editingBranch) {
         await api.put(`/api/branches/${editingBranch.id}`, { ...formData, restaurantId })
+        await logUserAction({
+          action: `Cập nhật thông tin chi nhánh: ${formData.name}`,
+          module: AuditModules.BRANCH,
+          targetId: editingBranch.id,
+          newData: formData
+        })
         toast.success('Đã cập nhật chi nhánh')
       } else {
-        await api.post('/api/branches', { ...formData, restaurantId })
+        const res = await api.post('/api/branches', { ...formData, restaurantId })
+        await logUserAction({
+          action: `Thêm chi nhánh mới: ${formData.name}`,
+          module: AuditModules.BRANCH,
+          targetId: res.data?.id,
+          newData: formData
+        })
         toast.success('Đã thêm chi nhánh mới')
       }
       await refetch()
