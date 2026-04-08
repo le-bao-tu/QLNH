@@ -47,7 +47,7 @@ interface Table {
 
 interface Payment {
   id: string
-  finalAmount: number
+  amount: number
 }
 
 interface Reservation {
@@ -86,8 +86,11 @@ export default function DashboardPage() {
   const { data: inventoryItems = [] } = useInventoryItems(branchId)
   const { data: promotions = [] } = usePromotions(restaurantId)
 
+  console.log(payments);
+  
+
   const occupiedTables = tables.filter((t: Table) => t.status === 'occupied').length
-  const todayRevenue = payments.reduce((sum: number, p: Payment) => sum + p.finalAmount, 0)
+  const todayRevenue = payments.reduce((sum: number, p: Payment) => sum + p.amount, 0)
   const lowStockCount = inventoryItems.filter((i: InventoryItem) => i.isLowStock).length
   const todayReservations = reservations.filter((r: Reservation) => r.status !== 'cancelled').length
 

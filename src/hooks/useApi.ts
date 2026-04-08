@@ -131,6 +131,18 @@ export function useDeleteMenuItem() {
 }
 
 // ===== ORDERS =====
+export function useAllOrders(branchId: string) {
+  return useQuery({
+    queryKey: [branchId],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/orders/branch/${branchId}`)
+      return data
+    },
+    enabled: !!branchId,
+    refetchInterval: 15000,
+  })
+}
+
 export function useActiveOrders(branchId: string) {
   return useQuery({
     queryKey: ['orders', 'active', branchId],

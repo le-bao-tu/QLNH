@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, startTransition } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import { useTables, useUpdateTableStatus, useBranches } from '@/hooks/useApi'
 import { Plus, Edit2, Trash2, RefreshCw, Grid3x3, QrCode } from 'lucide-react'
@@ -48,10 +48,12 @@ export default function TablesPage() {
 
   const { data: branches = [], refetch: refetchBranches } = useBranches(isOwner ? restaurantId : '')
 
-  // Tự động chọn chi nhánh đầu tiên cho Owner nếu chưa chọn
+  // Nếu là owner và chưa có chi nhánh nào được chọn, tự động chọn chi nhánh đầu tiên
   useEffect(() => {
     if (isOwner && !selectedBranchId && branches.length > 0) {
-      setSelectedBranchId(branches[0].id)
+      startTransition(() =>{
+        setSelectedBranchId(prev => prev || branches[0].id)
+      })
     }
   }, [isOwner, selectedBranchId, branches])
 
