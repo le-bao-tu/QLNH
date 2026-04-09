@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import api from '@/lib/api'
 import { useToast } from '@/hooks/useToast'
+import { ChatBot } from '@/components/ChatBot'
 
 export default function GuestOrderPage({ params }: { params: Promise<{ tableId: string }> }) {
   const { tableId } = use(params)
@@ -253,6 +254,7 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar { display: none; }
       `}</style>
+      <ChatBot />
     </div>
   )
 }
