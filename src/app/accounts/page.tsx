@@ -7,7 +7,7 @@ import api from '@/lib/api'
 import {
   UserRound, UserPlus, Trash2, Shield, ChefHat,
   User, CreditCard, Users, Eye, EyeOff, Building2,
-  GitBranch, Search, X, Check, AlertTriangle
+  GitBranch, Search, X, Check, AlertTriangle, Pencil
 } from 'lucide-react'
 import { SelectBox } from '@/components/SelectBox'
 import { useToast } from '@/hooks/useToast'
@@ -51,6 +51,7 @@ const accountTypes = [
 ]
 
 export default function AccountsPage() {
+  const [mounted, setMounted] = useState(false)
   const { user } = useAuth()
   const restaurantId = user?.restaurantId || ''
   const branchId = user?.branchId || ''
@@ -59,6 +60,7 @@ export default function AccountsPage() {
   const [branches, setBranches] = useState<Branch[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [form, setForm] = useState({ ...defaultForm, branchId })
   const [showPass, setShowPass] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -94,7 +96,10 @@ export default function AccountsPage() {
     }
   }, [restaurantId])
 
-  useEffect(() => { fetchData() }, [fetchData, activeBranchId])
+  useEffect(() => {
+    setMounted(true)
+    fetchData()
+  }, [fetchData, activeBranchId])
 
   // Tự động chọn chi nhánh đầu tiên cho Owner nếu chưa chọn
   useEffect(() => {
@@ -103,21 +108,36 @@ export default function AccountsPage() {
     }
   }, [isOwner, selectedBranchId, branches])
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
-      await api.post('/api/auth/create-staff', {
-        ...form,
-        restaurantId,
-        branchId: form.branchId || branchId
-      })
-      toast.success('Tạo tài khoản thành công!')
+      if (editingAccount) {
+        // Cập nhật tài khoản hiện có
+        await api.put(`/api/auth/users/${editingAccount.id}`, {
+          email: form.email,
+          fullName: form.fullName,
+          role: form.role,
+          branchId: form.branchId,
+          password: form.password || undefined // Nếu trống thì không gửi password
+        })
+        toast.success('Cập nhật tài khoản thành công!')
+      } else {
+        // Tạo mới tài khoản
+        await api.post('/api/auth/create-staff', {
+          ...form,
+          restaurantId,
+          branchId: form.branchId || branchId
+        })
+        toast.success('Tạo tài khoản thành công!')
+      }
+      
       setShowCreate(false)
-      setForm({ ...defaultForm, branchId })
+      setEditingAccount(null)
+      setForm({ ...defaultForm, branchId: activeBranchId })
       fetchData()
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Lỗi khi tạo tài khoản')
+      toast.error(err.response?.data?.message || 'Lỗi khi lưu tài khoản')
     } finally {
       setSaving(false)
     }
@@ -142,6 +162,8 @@ export default function AccountsPage() {
   )
 
   const getBranchName = (id: string) => branches.find(b => b.id === id)?.name || 'Chưa xác định'
+
+  if (!mounted) return null
 
   return (
     <AuthLayout>
@@ -171,7 +193,11 @@ export default function AccountsPage() {
                 </div>
               )}
               <button
-                onClick={() => setShowCreate(true)}
+                onClick={() => {
+                  setEditingAccount(null)
+                  setForm({ ...defaultForm, branchId: activeBranchId })
+                  setShowCreate(true)
+                }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95 whitespace-nowrap"
               >
                 <UserPlus size={20} />
@@ -269,19 +295,40 @@ export default function AccountsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-5 hidden lg:table-cell text-sm text-gray-500">{acc.email || '—'}</td>
-                        <td className="px-4 py-5 hidden lg:table-cell text-sm text-gray-400">
+                        <td className="px-4 py-5 hidden lg:table-cell text-sm text-gray-400" suppressHydrationWarning>
                           {new Date(acc.createdAt).toLocaleDateString('vi-VN')}
                         </td>
                         {isOwner && (
-                          <td className="px-4 py-5">
-                            {!isMe && acc.role !== 'Owner' && (
-                              <button
-                                onClick={() => setDeleteTarget(acc)}
-                                className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            )}
+                          <td className="px-4 py-5 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {!isMe && acc.role !== 'Owner' && (
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      setEditingAccount(acc)
+                                      setForm({
+                                        username: acc.username, // Username thường không cho đổi qua API cập nhật nhưng giữ trong form cho hiển thị
+                                        email: acc.email,
+                                        password: '',
+                                        fullName: acc.fullName,
+                                        role: acc.role,
+                                        branchId: acc.branchId
+                                      })
+                                      setShowCreate(true)
+                                    }}
+                                    className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                  >
+                                    <Pencil size={16} />
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteTarget(acc)}
+                                    className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -300,14 +347,14 @@ export default function AccountsPage() {
           <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="p-8 border-b border-gray-100 flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-black text-gray-900">Tạo tài khoản mới</h2>
-                <p className="text-gray-500 text-sm mt-1">Nhân viên sẽ đăng nhập bằng tài khoản này</p>
+                <h2 className="text-2xl font-black text-gray-900">{editingAccount ? 'Cập nhật tài khoản' : 'Tạo tài khoản mới'}</h2>
+                <p className="text-gray-500 text-sm mt-1">{editingAccount ? 'Thay đổi thông tin cho tài khoản ' + editingAccount.username : 'Nhân viên sẽ đăng nhập bằng tài khoản này'}</p>
               </div>
-              <button type="button" onClick={() => setShowCreate(false)} className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center hover:bg-gray-200 transition-colors">
+              <button type="button" onClick={() => { setShowCreate(false); setEditingAccount(null); }} className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center hover:bg-gray-200 transition-colors">
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleCreate} className="p-8 space-y-5">
+            <form onSubmit={handleSave} className="p-8 space-y-5">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Họ và tên *</label>
@@ -321,9 +368,11 @@ export default function AccountsPage() {
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Username *</label>
                   <input
-                    required value={form.username}
+                    required 
+                    disabled={!!editingAccount}
+                    value={form.username}
                     onChange={e => setForm(p => ({ ...p, username: e.target.value }))}
-                    className="w-full bg-gray-50 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm"
+                    className={`w-full bg-gray-50 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm ${editingAccount ? 'opacity-50 cursor-not-allowed' : ''}`}
                     placeholder="nhanvien01"
                   />
                 </div>
@@ -338,14 +387,15 @@ export default function AccountsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Mật khẩu *</label>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">{editingAccount ? 'Mật khẩu mới' : 'Mật khẩu *'}</label>
                 <div className="relative">
                   <input
-                    required type={showPass ? 'text' : 'password'} value={form.password}
+                    required={!editingAccount} 
+                    type={showPass ? 'text' : 'password'} value={form.password}
                     onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
                     className="w-full bg-gray-50 rounded-2xl px-4 py-3 pr-12 outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm"
-                    placeholder="Tối thiểu 6 ký tự"
-                    minLength={6}
+                    placeholder={editingAccount ? 'Để trống nếu không đổi' : 'Tối thiểu 6 ký tự'}
+                    minLength={editingAccount && !form.password ? 0 : 6}
                   />
                   <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
                     {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -373,7 +423,7 @@ export default function AccountsPage() {
                   className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-3.5 rounded-2xl transition-colors flex items-center justify-center gap-2"
                 >
                   <UserPlus size={18} />
-                  {saving ? 'Đang tạo...' : 'Tạo tài khoản'}
+                  {saving ? 'Đang lưu...' : (editingAccount ? 'Lưu thay đổi' : 'Tạo tài khoản')}
                 </button>
               </div>
             </form>

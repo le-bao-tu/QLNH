@@ -46,6 +46,7 @@ const modules = [
 ]
 
 export default function AuditLogsPage() {
+  const [mounted, setMounted] = useState(false)
   const { user } = useAuth()
   const isOwner = user?.role?.toLowerCase() === 'owner'
   const restaurantId = user?.restaurantId || ''
@@ -83,6 +84,7 @@ export default function AuditLogsPage() {
   }
 
   useEffect(() => {
+    setMounted(true)
     loadLogs()
   }, [page, module, selectedBranchId])
 
@@ -94,6 +96,8 @@ export default function AuditLogsPage() {
     if (a.includes('login')) return 'bg-purple-100 text-purple-700'
     return 'bg-gray-100 text-gray-700'
   }
+
+  if (!mounted) return null
 
   return (
     <AuthLayout>
@@ -185,7 +189,7 @@ export default function AuditLogsPage() {
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
                         <Clock className="text-gray-400" size={16} />
-                        <div>
+                        <div suppressHydrationWarning>
                           <p className="font-bold text-gray-900">{new Date(log.createdAt).toLocaleTimeString('vi-VN')}</p>
                           <p className="text-xs text-gray-400">{new Date(log.createdAt).toLocaleDateString('vi-VN')}</p>
                         </div>
