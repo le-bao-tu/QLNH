@@ -45,6 +45,7 @@ export function useTables(branchId: string) {
     },
     enabled: !!branchId,
     refetchOnMount: true,
+    refetchInterval: 8000,
   })
 }
 

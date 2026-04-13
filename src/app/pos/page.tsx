@@ -27,8 +27,10 @@ import {
   UtensilsCrossed,
   Trash2,
   CheckCircle,
+  CheckSquare,
   Info,
-  Printer
+  Printer,
+  BellRing
 } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuth } from '@/lib/auth'
@@ -47,6 +49,8 @@ interface CartItem {
   oldQuantity: number
   quantity: number
   note?: string
+  status?: string
+  orderItemId?: string
 }
 
 interface Customer {
@@ -102,31 +106,25 @@ export default function POSPage() {
       setLoading(true)
       api.get(`/api/orders/${selectedTable.currentOrderId}`)
         .then(({ data }) => {
-          if (data && data.items) {
-            const items = data.items
-            const itemMap = new Map()
-
-            items.forEach((i: any) => {
-              const currentQuantity = itemMap.get(i.menuItemId) || 0
-              itemMap.set(i.menuItemId, currentQuantity + i.quantity)
-            })
-
-            const uniqueItems = Array.from(itemMap.entries()).map(([menuItemId, quantity]) => {
-              const item = items.find((i: any) => i.menuItemId === menuItemId)
-              return {
-                id: item.menuItemId,
-                name: item.menuItemName,
-                price: item.unitPrice,
-                unitPrice: item.unitPrice,
-                totalPrice: item.unitPrice * quantity,
-                originalPrice: item.originalPrice,
-                quantity: quantity,
-                note: item.note,
-                oldQuantity: quantity
-              }
-            })
-            setCart(uniqueItems)
-          }
+            if (data && data.items) {
+              const items = data.items
+              const rawItems = items.map((i: any) => ({
+                ...i,
+                id: i.id, // Use unique OrderItemId
+                menuItemId: i.menuItemId,
+                name: i.menuItemName,
+                price: i.unitPrice,
+                unitPrice: i.unitPrice,
+                totalPrice: i.subTotal,
+                originalPrice: i.originalPrice,
+                quantity: i.quantity,
+                oldQuantity: i.quantity, // Persist DB quantity
+                note: i.note,
+                status: i.status,
+                orderItemId: i.id
+              }))
+              setCart(rawItems)
+            }
         })
         .catch(err => {
           console.error('Failed to load table order:', err)
@@ -255,26 +253,123 @@ export default function POSPage() {
   }
 
   const handleSendToKitchen = async () => {
-    if (!selectedTable || newCart.length === 0) return
+    if (!selectedTable) return
     setLoading(true)
     try {
-      if (selectedTable.currentOrderId) {
-        for (const item of newCart) {
-          await addOrderItem.mutateAsync({ orderId: selectedTable.currentOrderId, menuItemId: item.id, quantity: item.quantity, note: item.note })
+      let orderId = selectedTable.currentOrderId
+      
+      // 1. If there's a new cart (manual staff entry), save it first
+      if (newCart.length > 0) {
+        if (orderId) {
+          for (const item of newCart) {
+            await addOrderItem.mutateAsync({ orderId, menuItemId: item.id, quantity: item.quantity, note: item.note })
+          }
+        } else {
+          const order = await createOrder.mutateAsync({ 
+            tableId: selectedTable.id, 
+            customerId: selectedCustomer?.id, 
+            guestCount: 1, 
+            note: orderNote, 
+            voucherCode: appliedPromotion?.code, 
+            items: newCart.map(item => ({ menuItemId: item.id, quantity: item.quantity, note: item.note })) 
+          })
+          orderId = order.id
         }
-      } else {
-        await createOrder.mutateAsync({ tableId: selectedTable.id, customerId: selectedCustomer?.id, guestCount: 1, note: orderNote, voucherCode: appliedPromotion?.code, items: newCart.map(item => ({ menuItemId: item.id, quantity: item.quantity, note: item.note })) })
       }
+
+      // 2. Trigger send to kitchen for all 'pending' items (including confirmed QR items and manual staff entries)
+      if (orderId) {
+        await api.post(`/api/orders/${orderId}/send-to-kitchen`)
+      }
+
       setNewCart([]); setSelectedCustomer(null); setAppliedPromotion(null); setVoucherCode(''); setOrderSuccess(true);
+      
       await logUserAction({
         action: `Gửi yêu cầu chế biến - Bàn ${selectedTable.tableNumber}`,
         module: AuditModules.POS,
-        targetId: selectedTable.currentOrderId || undefined,
+        targetId: orderId || undefined,
         newData: { items: newCart, note: orderNote }
       })
       refetchTables() 
+      
+      // Reload order items to see updated status (cooking)
+      const { data } = await api.get(`/api/orders/${orderId}`)
+      setCart(data.items.map((i: any) => ({
+        ...i,
+        id: i.id,
+        menuItemId: i.menuItemId,
+        name: i.menuItemName,
+        price: i.unitPrice,
+        unitPrice: i.unitPrice,
+        totalPrice: i.subTotal,
+        originalPrice: i.originalPrice,
+        quantity: i.quantity,
+        oldQuantity: i.quantity,
+        note: i.note,
+        status: i.status,
+        orderItemId: i.id
+      })))
+
       setTimeout(() => setOrderSuccess(false), 3000)
     } finally { setLoading(false) }
+  }
+
+  const handleConfirmOrder = async () => {
+    if (!selectedTable?.currentOrderId) return
+    setLoading(true)
+    try {
+      await api.post(`/api/orders/${selectedTable.currentOrderId}/confirm`)
+      toast.success('Đã xác nhận toàn bộ đơn hàng')
+      await logUserAction({
+        action: `Xác nhận toàn bộ đơn hàng QR - Bàn ${selectedTable.tableNumber}`,
+        module: AuditModules.POS,
+        targetId: selectedTable.currentOrderId,
+        newData: { status: 'confirmed' }
+      })
+      // Refresh current order data
+      const { data } = await api.get(`/api/orders/${selectedTable.currentOrderId}`)
+      setCart(data.items.map((i: any) => ({
+        ...i,
+        id: i.id,
+        menuItemId: i.menuItemId,
+        name: i.menuItemName,
+        price: i.unitPrice,
+        unitPrice: i.unitPrice,
+        totalPrice: i.subTotal,
+        originalPrice: i.originalPrice,
+        quantity: i.quantity,
+        oldQuantity: i.quantity,
+        note: i.note,
+        status: i.status,
+        orderItemId: i.id
+      })))
+      refetchTables()
+    } catch {
+      toast.error('Lỗi khi xác nhận đơn hàng')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleConfirmOneItem = async (orderItemId: string) => {
+    setLoading(true)
+    try {
+      await api.post(`/api/orders/items/${orderItemId}/confirm`)
+      toast.success('Đã xác nhận món')
+      await logUserAction({
+        action: `Xác nhận món ăn lẻ từ QR Order`,
+        module: AuditModules.POS,
+        targetId: orderItemId,
+        newData: { itemStatus: 'confirmed' }
+      })
+      setCart(prev => prev.map(item => 
+        item.orderItemId === orderItemId ? { ...item, status: 'pending' } : item
+      ))
+    } catch {
+      toast.error('Lỗi khi xác nhận món')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const getVietQRUrl = () => {
@@ -378,9 +473,13 @@ export default function POSPage() {
           <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center mb-2">Bàn</div>
           {tables.map((t: any) => (
             <button key={t.id} onClick={() => setSelectedTable(t)}
-              className={`aspect-square rounded-2xl flex flex-col items-center justify-center transition-all border-2 relative ${selectedTable?.id === t.id ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : t.status === 'occupied' ? 'bg-red-50 border-red-100 text-red-600' : 'bg-gray-50 border-transparent text-gray-500 hover:border-gray-200'}`}>
+              className={`aspect-square rounded-2xl flex flex-col items-center justify-center transition-all border-2 relative ${selectedTable?.id === t.id ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : t.currentOrderStatus === 'awaiting_confirmation' ? 'bg-amber-50 border-amber-500 text-amber-600 animate-pulse' : t.status === 'occupied' ? 'bg-red-50 border-red-100 text-red-600' : 'bg-gray-50 border-transparent text-gray-500 hover:border-gray-200'}`}>
               <span className="text-xl font-black">{t.tableNumber}</span>
-              {t.status === 'occupied' && <div className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></div>}
+              {t.currentOrderStatus === 'awaiting_confirmation' ? (
+                 <div className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+                   <BellRing size={10} color="white" />
+                 </div>
+              ) : t.status === 'occupied' && <div className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></div>}
             </button>
           ))}
         </div>
@@ -442,18 +541,40 @@ export default function POSPage() {
 
           <div className="bg-white rounded-[2.5rem] border border-gray-100 flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
-              {cart.map((item, idx) => (
-                <div key={idx} className="flex flex-col gap-2 p-4 bg-gray-50 rounded-3xl shadow-sm">
+              {cart.map((item: any, idx) => (
+                <div key={idx} className={`flex flex-col gap-2 p-4 rounded-3xl shadow-sm ${item.status === 'awaiting_confirmation' ? 'bg-amber-50 border border-amber-200' : item.status === 'pending' ? 'bg-blue-50/50 border border-blue-100' : 'bg-gray-50'}`}>
                   <div className="flex justify-between items-start">
-                    <span className="font-black text-sm text-gray-900 uppercase">{item.name}</span>
-                    <span className="font-black text-blue-600 text-sm">{(getDiscountedItemPrice(item) * item.quantity).toLocaleString()}đ</span>
+                    <div>
+                      <span className="font-black text-sm text-gray-900 uppercase">{item.name}</span>
+                      {item.status === 'awaiting_confirmation' && (
+                        <div className="flex items-center gap-1 text-[10px] text-amber-600 font-bold uppercase mt-0.5">
+                          <BellRing size={10} /> Chờ xác nhận (QR)
+                        </div>
+                      )}
+                      {item.status === 'pending' && (
+                        <div className="flex items-center gap-1 text-[10px] text-blue-600 font-bold uppercase mt-0.5">
+                          <CheckSquare size={10} /> Sẵn sàng gửi bếp
+                        </div>
+                      )}
+                      {item.status === 'cooking' && (
+                        <div className="flex items-center gap-1 text-[10px] text-green-600 font-bold uppercase mt-0.5">
+                          <ChefHat size={10} /> Đang chế biến
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-black text-blue-600 text-sm">{(item.price * item.quantity).toLocaleString()}đ</span>
                   </div>
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex bg-white rounded-xl p-1 border border-gray-100">
-                      <button onClick={() => updateQuantity(item.id, -1)} className="w-7 h-7 flex items-center justify-center text-gray-400"><Minus size={12} /></button>
+                      <button disabled={item.status === 'cooking'} onClick={() => updateQuantity(item.id, -1)} className="w-7 h-7 flex items-center justify-center text-gray-400 disabled:opacity-30"><Minus size={12} /></button>
                       <span className="w-8 flex items-center justify-center font-black text-xs">{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.id, 1)} className="w-7 h-7 flex items-center justify-center text-blue-600"><Plus size={12} /></button>
+                      <button disabled={item.status === 'cooking'} onClick={() => updateQuantity(item.id, 1)} className="w-7 h-7 flex items-center justify-center text-blue-600 disabled:opacity-30"><Plus size={12} /></button>
                     </div>
+                    {item.status === 'awaiting_confirmation' && (
+                       <button onClick={() => handleConfirmOneItem(item.orderItemId)} className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                         Duyệt món
+                       </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -476,13 +597,18 @@ export default function POSPage() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 pt-2">
-                <button disabled={!selectedTable || newCart.length === 0 || loading} onClick={handleSendToKitchen} className="bg-orange-600 disabled:opacity-50 text-white rounded-2xl py-4 flex flex-col items-center justify-center gap-1 shadow-lg shadow-orange-100">
+                <button disabled={!selectedTable || loading || (newCart.length === 0 && !cart.some((i: any) => i.status === 'pending'))} onClick={handleSendToKitchen} className="bg-orange-600 disabled:opacity-50 text-white rounded-2xl py-4 flex flex-col items-center justify-center gap-1 shadow-lg shadow-orange-100">
                   <ChefHat size={20} /><span className="text-[10px] font-black uppercase tracking-widest">VÀO BẾP</span>
                 </button>
                 <div className="grid grid-cols-1 gap-2">
                   <button disabled={!selectedTable || loading || total <= 0} onClick={() => setShowPaymentModal(true)} className="bg-blue-600 disabled:opacity-50 text-white rounded-xl py-2 flex flex-col items-center justify-center gap-1 shadow-md shadow-blue-100">
                     <CreditCard size={16} /><span className="text-[10px] font-black uppercase tracking-widest">THANH TOÁN</span>
                   </button>
+                  {cart.some((i: any) => i.status === 'awaiting_confirmation') && (
+                    <button onClick={handleConfirmOrder} className="bg-amber-500 text-white rounded-xl py-2 flex flex-col items-center justify-center gap-1 shadow-md shadow-amber-100 animate-pulse">
+                      <BellRing size={16} /><span className="text-[10px] font-black uppercase tracking-widest">DUYỆT VÀO GIỎ</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
