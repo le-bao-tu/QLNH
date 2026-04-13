@@ -42,10 +42,10 @@ import { logUserAction, AuditModules } from '@/lib/audit'
 interface CartItem {
   id: string
   name: string
-  price: number 
-  unitPrice: number 
-  totalPrice?: number 
-  originalPrice: number 
+  price: number
+  unitPrice: number
+  totalPrice?: number
+  originalPrice: number
   oldQuantity: number
   quantity: number
   note?: string
@@ -82,21 +82,21 @@ export default function POSPage() {
   const [orderSuccess, setOrderSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<string>('cash')
 
   // Invoice state
   const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null)
   const [showInvoice, setShowInvoice] = useState(false)
-  
+
   const toast = useToast()
-  const [confirmDialog, setConfirmDialog] = useState<{isOpen: boolean, action: 'pay' | null}>({isOpen: false, action: null})
-  
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, action: 'pay' | null }>({ isOpen: false, action: null })
+
   const { data: tables = [], refetch: refetchTables } = useTables(branchId)
   const { data: categories = [] } = useMenuCategories(restaurantId)
   const { data: allItems = [] } = useMenuItems(restaurantId)
-  const { data: customers = [] } = useCustomers(restaurantId, customerSearch)
   const { data: allPromotions = [] } = usePromotions(restaurantId)
   const { data: restaurant } = useRestaurant(restaurantId)
-  const {data: branchs} = useBranches(restaurantId)
+  const { data: branchs } = useBranches(restaurantId)
 
   const createOrder = useCreateOrder()
   const addOrderItem = useAddOrderItem()
@@ -275,6 +275,11 @@ export default function POSPage() {
           })
           orderId = order.id
         }
+<<<<<<< HEAD
+=======
+      } else {
+        await createOrder.mutateAsync({ tableId: selectedTable.id, customerId: selectedCustomer?.id, restaurantId: restaurant?.id, guestCount: 1, note: orderNote, voucherCode: appliedPromotion?.code, items: newCart.map(item => ({ menuItemId: item.id, quantity: item.quantity, note: item.note })) })
+>>>>>>> master
       }
 
       // 2. Trigger send to kitchen for all 'pending' items (including confirmed QR items and manual staff entries)
@@ -314,6 +319,7 @@ export default function POSPage() {
     } finally { setLoading(false) }
   }
 
+<<<<<<< HEAD
   const handleConfirmOrder = async () => {
     if (!selectedTable?.currentOrderId) return
     setLoading(true)
@@ -378,6 +384,8 @@ export default function POSPage() {
     return `https://img.vietqr.io/image/${restaurant.bankId}-${restaurant.accountNo}-compact2.png?amount=${total}&addInfo=${memo}&accountName=${encodeURIComponent(restaurant.accountName || '')}`
   }
 
+=======
+>>>>>>> master
   const handleConfirmPayment = async () => {
     if (!selectedTable) return
     setConfirmDialog({ isOpen: true, action: 'pay' })
@@ -388,8 +396,13 @@ export default function POSPage() {
     const orderId = selectedTable.currentOrderId
     setLoading(true)
     try {
-      await api.patch(`/api/tables/${selectedTable.id}/status`, { status: 'available' })
-      await api.post(`/api/orders/${orderId}/pay`, { paymentMethod: 'Tiền mặt' })
+      // POST /api/payment automatically sets order status to "paid" and table to "available"
+      await api.post(`/api/payment`, {
+        orderId,
+        amount: total,
+        method: paymentMethod,
+        note: `Thanh toán bàn ${selectedTable.tableNumber}`
+      })
 
       setShowPaymentModal(false)
       setSelectedTable(null)
@@ -467,7 +480,7 @@ export default function POSPage() {
   return (
     <AuthLayout>
       <div className="flex h-[calc(100vh-40px)] gap-4 p-4 bg-gray-50 overflow-hidden">
-        
+
         {/* LEFT: TABLE SELECTION */}
         <div className="w-20 md:w-24 bg-white rounded-3xl border border-gray-100 shadow-sm flex flex-col p-3 gap-3 overflow-y-auto custom-scrollbar">
           <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center mb-2">Bàn</div>
@@ -525,9 +538,9 @@ export default function POSPage() {
           <div className="bg-gray-900 text-white rounded-[2.5rem] p-6 shadow-xl space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="font-black text-lg tracking-tight">Chi tiết đơn {selectedTable && `#${selectedTable.tableNumber}`}</h2>
-              <button onClick={() => {setCart([]); setNewCart([])}} className="text-gray-400 hover:text-white"><Trash2 size={20} /></button>
+              <button onClick={() => { setCart([]); setNewCart([]) }} className="text-gray-400 hover:text-white"><Trash2 size={20} /></button>
             </div>
-            
+
             <div className="bg-white/5 rounded-2xl p-3 border border-white/10 flex items-center justify-between">
               {selectedCustomer ? (
                 <div className="flex items-center gap-3">
@@ -616,42 +629,113 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* Payment Modal (VietQR) */}
+      {/* Payment Modal */}
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="p-8 border-b flex justify-between items-center bg-gray-50/50">
-              <div><h2 className="text-2xl font-black text-gray-900">Thanh toán VietQR</h2><p className="text-gray-400 text-sm mt-1">Quét mã Napas để trả tiền</p></div>
-              <button onClick={() => setShowPaymentModal(false)} className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center"><X size={20} /></button>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-6 border-b flex justify-between items-center bg-gradient-to-r from-blue-600 to-blue-700 flex-shrink-0">
+              <div>
+                <h2 className="text-xl font-black text-white flex items-center gap-2">
+                  <CreditCard size={20} /> Xác nhận thanh toán
+                </h2>
+                <p className="text-blue-200 text-sm mt-0.5">Bàn #{selectedTable?.tableNumber}</p>
+              </div>
+              <button onClick={() => setShowPaymentModal(false)} className="w-9 h-9 bg-white/20 hover:bg-white/30 rounded-xl flex items-center justify-center text-white transition-colors">
+                <X size={18} />
+              </button>
             </div>
-            <div className="p-8 flex flex-col items-center">
-              {!restaurant?.bankId ? (
-                <div className="text-center py-10 bg-amber-50 rounded-3xl border border-amber-100 w-full"><Info className="mx-auto text-amber-500 mb-4" size={48} /><p className="text-amber-800 font-bold">Chưa cấu hình ngân hàng</p></div>
-              ) : (
-                <>
-                  <div className="w-full grid grid-cols-2 gap-4 mb-6">
-                    <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100"><p className="text-[10px] font-black text-blue-400 uppercase mb-1">Số tiền</p><p className="text-2xl font-black text-blue-700">{total.toLocaleString()}đ</p></div>
-                    <div className="bg-gray-50 p-4 rounded-2xl border"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Bàn</p><p className="text-2xl font-black text-gray-700">{selectedTable?.tableNumber}</p></div>
+
+            {/* Order Items */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <div className="p-6 space-y-2">
+                <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-3">Chi tiết đơn hàng</p>
+                {cart.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">Không có món nào</p>
+                ) : (
+                  cart.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center text-xs font-black flex-shrink-0">{item.quantity}</span>
+                        <span className="text-sm font-bold text-gray-800 truncate">{item.name}</span>
+                      </div>
+                      <div className="text-right flex-shrink-0 ml-4">
+                        <span className="text-sm font-black text-gray-900">{(getDiscountedItemPrice(item) * item.quantity).toLocaleString()}đ</span>
+                        {getDiscountedItemPrice(item) < item.price && (
+                          <p className="text-[10px] text-gray-400 line-through">{(item.price * item.quantity).toLocaleString()}đ</p>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Totals */}
+              <div className="mx-6 mb-4 bg-gray-50 rounded-2xl p-4 space-y-2">
+                <div className="flex justify-between text-xs text-gray-500 font-semibold">
+                  <span>Tạm tính</span>
+                  <span>{subtotal.toLocaleString()}đ</span>
+                </div>
+                {discount > 0 && (
+                  <div className="flex justify-between text-xs text-green-600 font-bold">
+                    <span>Giảm giá {promoSource && <span className="font-normal opacity-70">({promoSource})</span>}</span>
+                    <span>-{Math.round(discount).toLocaleString()}đ</span>
                   </div>
-                  <div className="w-full space-y-2 bg-gray-50 p-4 rounded-2xl text-xs font-medium">
-                    <div className="flex justify-between"><span>Ngân hàng:</span><span className="font-bold">{restaurant.bankId}</span></div>
-                    <div className="flex justify-between"><span>STK:</span><span className="font-bold">{restaurant.bankNumber}</span></div>
-                    <div className="flex justify-between"><span>Tên:</span><span className="font-bold uppercase">{restaurant.bankOwner}</span></div>
-                  </div>
-                </>
-              )}
+                )}
+                <div className="flex justify-between text-xs text-gray-500 font-semibold">
+                  <span>VAT (10%)</span>
+                  <span>{tax.toLocaleString()}đ</span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-gray-200 mt-1">
+                  <span className="font-black text-gray-900">Tổng cộng</span>
+                  <span className="text-xl font-black text-blue-600">{total.toLocaleString()}đ</span>
+                </div>
+              </div>
+
+              {/* Payment Method */}
+              <div className="px-6 pb-4">
+                <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-3">Phương thức thanh toán</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: 'cash', label: 'Tiền mặt', icon: '💵' },
+                    { value: 'card', label: ' Thẻ', icon: '💳' },
+                    { value: 'transfer', label: 'Chuyển khoản', icon: '🔄' },
+                  ].map(m => (
+                    <button
+                      key={m.value}
+                      onClick={() => setPaymentMethod(m.value)}
+                      className={`py-3 rounded-2xl border-2 flex flex-col items-center gap-1.5 transition-all ${paymentMethod === m.value ? 'border-blue-600 bg-blue-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}
+                    >
+                      <span className="text-lg">{m.icon}</span>
+                      <span className={`text-[10px] font-black uppercase ${paymentMethod === m.value ? 'text-blue-600' : 'text-gray-500'}`}>{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="p-8 bg-gray-50 border-t flex gap-4">
-              <button onClick={() => setShowPaymentModal(false)} className="flex-1 py-4 bg-gray-200 rounded-2xl font-black uppercase text-xs">Đóng</button>
-              <button disabled={!selectedTable || loading || cart.length === 0} onClick={handlePrintInvoice} className="flex-1 bg-gray-800 disabled:opacity-50 text-white rounded-xl py-2 flex flex-col items-center justify-center gap-1 shadow-md shadow-gray-200">
-                    <Printer size={16} /><span className="text-[10px] font-black uppercase tracking-widest">IN HÓA ĐƠN</span>
-                  </button>
+
+            {/* Footer Actions */}
+            <div className="p-5 bg-gray-50 border-t flex gap-3 flex-shrink-0">
               <button
-                disabled={loading}
-                onClick={handleConfirmPayment}
-                className="flex-1 py-4 bg-blue-600 disabled:opacity-50 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-blue-100 flex items-center justify-center gap-2"
+                onClick={() => setShowPaymentModal(false)}
+                className="py-3 px-5 bg-gray-200 hover:bg-gray-300 rounded-2xl font-black uppercase text-xs transition-colors"
               >
-                {loading ? 'Đang xử lý...' : 'Xác nhận thanh toán'}
+                Đóng
+              </button>
+              <button
+                disabled={!selectedTable || loading || cart.length === 0}
+                onClick={handlePrintInvoice}
+                className="flex items-center gap-2 bg-gray-800 disabled:opacity-50 text-white px-5 rounded-2xl font-black uppercase text-xs shadow-md transition-opacity"
+              >
+                <Printer size={14} /> In HĐ
+              </button>
+              <button
+                disabled={loading || cart.length === 0}
+                onClick={handleConfirmPayment}
+                className="flex-1 py-3 bg-blue-600 disabled:opacity-50 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-blue-100 flex items-center justify-center gap-2 transition-colors"
+              >
+                <CheckCircle size={16} />
+                {loading ? 'Đang xử lý...' : `Xác nhận · ${total.toLocaleString()}đ`}
               </button>
             </div>
           </div>

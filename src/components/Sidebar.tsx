@@ -17,42 +17,63 @@ import {
   TicketPercent,
   History,
   KeyRound,
+  Shield,
 } from 'lucide-react'
 import { ROLE_LABEL, ROLE_MAP } from '@/common/constant'
-import { useRestaurant } from '@/hooks/useApi'
+import { useRestaurant, useRoles } from '@/hooks/useApi'
+import { useToast } from '@/hooks/useToast'
 
 // Menu items với phân quyền: roles = [] nghĩa là tất cả đều thấy
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [ROLE_MAP.owner,  ROLE_MAP.manager] },
-  { href: '/pos', label: 'POS - Bán hàng', icon: UtensilsCrossed, roles: [ROLE_MAP.cashier, ROLE_MAP.waiter] },
-  { href: '/kitchen', label: 'Bếp (KDS)', icon: ChefHat, roles: [ROLE_MAP.chef, ROLE_MAP.waiter, ROLE_MAP.bartender] },
-  { href: '/orders', label: 'Đơn hàng', icon: ShoppingCart, roles: [ROLE_MAP.owner, ROLE_MAP.manager, ROLE_MAP.cashier] },
-  { href: '/tables', label: 'Quản lý bàn', icon: BookOpen, roles: [ROLE_MAP.owner,  ROLE_MAP.manager] },
-  { href: '/reservations', label: 'Đặt bàn', icon: CalendarDays, roles: [ROLE_MAP.owner,  ROLE_MAP.manager, ROLE_MAP.cashier] },
-  { href: '/menu', label: 'Thực đơn', icon: BookOpen, roles: [ROLE_MAP.owner, ROLE_MAP.manager] },
-  { href: '/payments', label: 'Thanh toán', icon: CreditCard, roles: [ROLE_MAP.manager, ROLE_MAP.cashier, ROLE_MAP.waiter] },
-  { href: '/promotions', label: 'Khuyến mãi', icon: TicketPercent, roles: [ROLE_MAP.owner]  },
-  // { href: '/customers', label: 'Khách hàng', icon: Users, roles: [ROLE_MAP.owner,  ROLE_MAP.manager, ROLE_MAP.cashier] },
-  // { href: '/employees', label: 'Nhân viên', icon: UserRoundCheck, roles: [ROLE_MAP.owner,  ROLE_MAP.manager] },
-  // { href: '/inventory', label: 'Kho hàng', icon: Package, roles: [ROLE_MAP.owner,  ROLE_MAP.manager] },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, perm: 'DASHBOARD' },
+  { href: '/pos', label: 'POS - Bán hàng', icon: UtensilsCrossed, perm: 'POS' },
+  { href: '/kitchen', label: 'Bếp (KDS)', icon: ChefHat, perm: 'KITCHEN' },
+  { href: '/orders', label: 'Đơn hàng', icon: ShoppingCart, perm: 'ORDERS' },
+  { href: '/tables', label: 'Quản lý bàn', icon: BookOpen, perm: 'TABLES' },
+  { href: '/reservations', label: 'Đặt bàn', icon: CalendarDays, perm: 'RESERVATIONS' },
+  { href: '/menu', label: 'Thực đơn', icon: BookOpen, perm: 'MENU' },
+  { href: '/payments', label: 'Thanh toán', icon: CreditCard, perm: 'PAYMENTS' },
+  { href: '/promotions', label: 'Khuyến mãi', icon: TicketPercent, perm: 'PROMOTIONS' },
+  // { href: '/customers', label: 'Khách hàng', icon: Users, perm: 'CUSTOMERS' },
+  // { href: '/employees', label: 'Nhân viên', icon: UserRoundCheck, perm: 'EMPLOYEES' },
+  // { href: '/inventory', label: 'Kho hàng', icon: Package, perm: 'INVENTORY' },
 
-  { href: '/accounts', label: 'Tài khoản', icon: KeyRound, roles: [ROLE_MAP.owner,  ROLE_MAP.manager] },
-  { href: '/restaurants', label: 'Nhà hàng', icon: Building2, roles: [ROLE_MAP.owner] },
-  { href: '/branches', label: 'Chi nhánh', icon: GitBranch, roles: [ROLE_MAP.owner] },
-  { href: '/audit', label: 'Audit Log', icon: History, roles: [ROLE_MAP.owner, ROLE_MAP.manager]  },
+  { href: '/accounts', label: 'Tài khoản', icon: KeyRound, perm: 'ACCOUNTS' },
+  { href: '/roles', label: 'Phân quyền', icon: Shield, perm: 'ACCOUNTS' },
+  { href: '/restaurants', label: 'Nhà hàng', icon: Building2, perm: 'RESTAURANTS' },
+  { href: '/branches', label: 'Chi nhánh', icon: GitBranch, perm: 'BRANCHES' },
+  { href: '/audit', label: 'Audit Log', icon: History, perm: 'AUDIT' },
 ]
 
 export default function Sidebar() {
   const pathname = usePathname()
   const { user, logout } = useAuth()
+  const { success, error, info } = useToast()
 
-  const {data: restaurant} = useRestaurant(user?.restaurantId as string)
+  const { data: restaurant } = useRestaurant(user?.restaurantId as string)
+  const { data: customRoles = [] } = useRoles(user?.restaurantId as string)
 
   const visibleItems = navItems.filter(item => {
-    if (item.roles.length === 0) return true;
-    const userRole = (user?.role || '').toLowerCase();
-    return item.roles.some(r => r.toLowerCase() === userRole);
+    if (user?.isOwner) return true
+
+    // Check custom roles
+    const customRole = customRoles.find((r: any) => r.id === user?.roleId);
+    if (customRole && item.perm) {
+      if (customRole.permissions.includes(item.perm)) return true;
+    }
+
+    return false;
   })
+
+  const handleLogout = async () => {
+    try {
+      await logout()
+      info('Đã đăng xuất khỏi hệ thống')
+    } catch (err) {
+      const axiosErr = err as { response?: { data?: { message?: string } } }
+      error(axiosErr.response?.data?.message || 'Đăng xuất thất bại')
+    }
+  }
 
   return (
     <div className="sidebar">
@@ -116,12 +137,12 @@ export default function Sidebar() {
               background: 'rgba(255,255,255,0.08)',
               borderRadius: 6, padding: '2px 6px', display: 'inline-block', marginTop: 2
             }}>
-              {ROLE_LABEL[user.role] || user.role}
+              {user.roleName || (user.isOwner ? "Chủ sở hữu" : "Người dùng")}
             </div>
           </div>
         )}
         <button
-          onClick={() => logout()}
+          onClick={() => handleLogout()}
           className="sidebar-nav-item"
           style={{ width: '100%', background: 'none', cursor: 'pointer' }}
         >

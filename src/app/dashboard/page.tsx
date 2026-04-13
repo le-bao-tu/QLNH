@@ -3,22 +3,23 @@
 import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import { useAuth } from '@/lib/auth'
-import { 
-  useActiveOrders, 
-  useTables, 
-  useRecentPayments, 
+import {
+  useActiveOrders,
+  useTables,
   useReservations,
   useInventoryItems,
-  usePromotions
+  usePromotions,
+  useRecentPaymentsInBranch,
+  useRecentPaymentsInRestaurant
 } from '@/hooks/useApi'
 import {
-  ShoppingCart, 
-  Users, 
-  CreditCard, 
+  ShoppingCart,
+  Users,
+  CreditCard,
   TrendingUp,
-  Clock, 
-  CheckCircle, 
-  UtensilsCrossed, 
+  Clock,
+  CheckCircle,
+  UtensilsCrossed,
   AlertCircle,
   CalendarDays,
   Package,
@@ -29,72 +30,83 @@ import {
 import Link from 'next/link'
 
 
-interface Order {
-  id: string
-  tableNumber: number
-  status: string
-  totalAmount: number
-  itemCount: number
-  createdAt: string
-}
-
-interface Table {
-  id: string
-  tableNumber: number
-  status: string
-  capacity: number
-}
-
-interface Payment {
-  id: string
-  finalAmount: number
-}
-
-interface Reservation {
-  id: string
-  status: string
-}
-
-interface InventoryItem {
-  id: string
-  isLowStock: boolean
-}
-
 export default function DashboardPage() {
   const { user } = useAuth()
   const branchId = user?.branchId || ''
   const restaurantId = user?.restaurantId || ''
+  const isOwner = user?.isOwner
 
+  const [filter, setFilter] = useState<'today' | 'week' | 'month'>('today')
   const [mounted, setMounted] = useState(false)
   const [currentDateStr, setCurrentDateStr] = useState('')
   const today = new Date().toISOString().split('T')[0]
 
   useEffect(() => {
     setMounted(true)
-    setCurrentDateStr(new Date().toLocaleDateString('vi-VN', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    setCurrentDateStr(new Date().toLocaleDateString('vi-VN', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     }))
   }, [])
 
   const { data: activeOrders = [] } = useActiveOrders(branchId)
   const { data: tables = [] } = useTables(branchId)
-  const { data: payments = [] } = useRecentPayments(branchId)
-  const { data: reservations = [] } = useReservations(branchId, today)
+  const { data: paymentsInBranch = [] } = useRecentPaymentsInBranch(branchId, {
+    enabled: !isOwner && branchId != '' // If user is owner, disable branch-level payments query to avoid confusion with restaurant-level payments
+  })
+  const { data: paymentsInRestaurant = [] } = useRecentPaymentsInRestaurant(restaurantId, {
+    enabled: isOwner && restaurantId != '' // Only enable restaurant-level payments query for owners
+  })
+  const { data: reservations = [] } = useReservations(branchId) // Fetch all to filter locally for now
   const { data: inventoryItems = [] } = useInventoryItems(branchId)
   const { data: promotions = [] } = usePromotions(restaurantId)
 
-  const occupiedTables = tables.filter((t: Table) => t.status === 'occupied').length
-  const todayRevenue = payments.reduce((sum: number, p: Payment) => sum + p.finalAmount, 0)
-  const lowStockCount = inventoryItems.filter((i: InventoryItem) => i.isLowStock).length
-  const todayReservations = reservations.filter((r: Reservation) => r.status !== 'cancelled').length
+  const allPayments = (isOwner ? paymentsInRestaurant : paymentsInBranch) as any[]
+
+  const filteredPayments = allPayments.filter(p => {
+    const pDate = new Date(p.createdAt)
+    const now = new Date()
+    if (filter === 'today') return pDate.toDateString() === now.toDateString()
+    if (filter === 'week') {
+      const startOfWeek = new Date(now)
+      const day = now.getDay()
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1)
+      startOfWeek.setDate(diff)
+      startOfWeek.setHours(0, 0, 0, 0)
+      return pDate >= startOfWeek
+    }
+    if (filter === 'month') return pDate.getMonth() === now.getMonth() && pDate.getFullYear() === now.getFullYear()
+    return true
+  })
+
+  const filteredReservations = reservations.filter((r: any) => {
+    if (r.status === 'cancelled') return false
+    const rDate = new Date(r.reservedAt)
+    const now = new Date()
+    if (filter === 'today') return rDate.toDateString() === now.toDateString()
+    if (filter === 'week') {
+      const startOfWeek = new Date(now)
+      const day = now.getDay()
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1)
+      startOfWeek.setDate(diff)
+      startOfWeek.setHours(0, 0, 0, 0)
+      return rDate >= startOfWeek
+    }
+    if (filter === 'month') return rDate.getMonth() === now.getMonth() && rDate.getFullYear() === now.getFullYear()
+    return true
+  })
+
+  const occupiedTables = tables.filter((t: any) => t.status === 'occupied').length
+  const periodRevenue = filteredPayments.reduce((sum: number, p: any) => sum + p.amount, 0)
+  const lowStockCount = inventoryItems.filter((i: any) => i.isLowStock).length
+  const periodReservations = filteredReservations.length
 
   const stats = [
     {
-      label: 'Doanh thu hôm nay',
-      value: `${todayRevenue.toLocaleString('vi-VN')}đ`,
+      label: `Doanh thu ${filter === 'today' ? 'hôm nay' : filter === 'week' ? 'tuần này' : 'tháng này'}`,
+      value: `${periodRevenue.toLocaleString('vi-VN')}đ`,
       icon: CreditCard,
       color: 'text-purple-600',
       bg: 'bg-purple-50',
@@ -109,8 +121,8 @@ export default function DashboardPage() {
       href: '/tables'
     },
     {
-      label: 'Đặt bàn hôm nay',
-      value: todayReservations,
+      label: `Đặt bàn ${filter === 'today' ? 'hôm nay' : filter === 'week' ? 'tuần này' : 'tháng này'}`,
+      value: periodReservations,
       icon: CalendarDays,
       color: 'text-blue-600',
       bg: 'bg-blue-50',
@@ -139,7 +151,27 @@ export default function DashboardPage() {
               {mounted ? `Hôm nay là ${currentDateStr}` : ''}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            <div className="flex bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <button
+                onClick={() => setFilter('today')}
+                className={`px-5 py-2 rounded-xl font-bold text-xs transition-all ${filter === 'today' ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-900'}`}
+              >
+                Hôm nay
+              </button>
+              <button
+                onClick={() => setFilter('week')}
+                className={`px-5 py-2 rounded-xl font-bold text-xs transition-all ${filter === 'week' ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-900'}`}
+              >
+                Tuần này
+              </button>
+              <button
+                onClick={() => setFilter('month')}
+                className={`px-5 py-2 rounded-xl font-bold text-xs transition-all ${filter === 'month' ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-900'}`}
+              >
+                Tháng này
+              </button>
+            </div>
             <Link href="/pos" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold transition-all shadow-lg shadow-blue-100 flex items-center gap-2">
               <ShoppingCart size={20} />
               Bán hàng ngay
@@ -151,18 +183,18 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {stats.map((stat, i) => (
             <Link key={i} href={stat.href} className="group bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all relative overflow-hidden">
-               <div className="flex justify-between items-start mb-4">
-                 <div className={`w-14 h-14 ${stat.bg} ${stat.color} rounded-2xl flex items-center justify-center p-3 transition-transform group-hover:scale-110`}>
-                   <stat.icon size={28} />
-                 </div>
-                 <ArrowUpRight size={20} className="text-gray-300 group-hover:text-blue-500 transition-colors" />
-               </div>
-               <div>
-                 <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-1">{stat.label}</p>
-                 <p className="text-3xl font-black text-gray-900 tracking-tighter">{stat.value}</p>
-               </div>
-               {/* Subtle background pattern */}
-               <stat.icon size={120} className={`absolute -right-8 -bottom-8 opacity-[0.03] ${stat.color} rotate-12`} />
+              <div className="flex justify-between items-start mb-4">
+                <div className={`w-14 h-14 ${stat.bg} ${stat.color} rounded-2xl flex items-center justify-center p-3 transition-transform group-hover:scale-110`}>
+                  <stat.icon size={28} />
+                </div>
+                <ArrowUpRight size={20} className="text-gray-300 group-hover:text-blue-500 transition-colors" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-1">{stat.label}</p>
+                <p className="text-3xl font-black text-gray-900 tracking-tighter">{stat.value}</p>
+              </div>
+              {/* Subtle background pattern */}
+              <stat.icon size={120} className={`absolute -right-8 -bottom-8 opacity-[0.03] ${stat.color} rotate-12`} />
             </Link>
           ))}
         </div>
@@ -205,11 +237,10 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                          order.status === 'preparing' ? 'bg-orange-100 text-orange-600' : 
+                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${order.status === 'preparing' ? 'bg-orange-100 text-orange-600' :
                           order.status === 'ready' ? 'bg-green-100 text-green-600' :
-                          'bg-blue-100 text-blue-600'
-                        }`}>
+                            'bg-blue-100 text-blue-600'
+                          }`}>
                           {order.status === 'preparing' ? 'Đang chế biến' : order.status === 'ready' ? 'Đã xong' : 'Chờ xử lý'}
                         </span>
                         <p className="text-lg font-black text-gray-900 mt-1">{order.totalAmount.toLocaleString('vi-VN')}đ</p>
@@ -233,13 +264,12 @@ export default function DashboardPage() {
               </div>
               <div className="grid grid-cols-4 gap-3">
                 {tables.slice(0, 12).map((table: Table) => (
-                  <div 
+                  <div
                     key={table.id}
-                    className={`aspect-square rounded-xl flex items-center justify-center font-black text-lg transition-all ${
-                      table.status === 'occupied' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 
-                      table.status === 'reserved' ? 'bg-yellow-500 text-white' : 
-                      'bg-gray-800 text-gray-500 border border-gray-700'
-                    }`}
+                    className={`aspect-square rounded-xl flex items-center justify-center font-black text-lg transition-all ${table.status === 'occupied' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' :
+                      table.status === 'reserved' ? 'bg-yellow-500 text-white' :
+                        'bg-gray-800 text-gray-500 border border-gray-700'
+                      }`}
                   >
                     {table.tableNumber}
                   </div>
@@ -247,44 +277,46 @@ export default function DashboardPage() {
               </div>
               <div className="mt-6 pt-6 border-t border-gray-800 grid grid-cols-2 gap-4">
                 <div className="flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                   <span className="text-[10px] uppercase font-bold text-gray-400">Đang dùng ({occupiedTables})</span>
+                  <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Đang dùng ({occupiedTables})</span>
                 </div>
                 <div className="flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full bg-gray-700"></div>
-                   <span className="text-[10px] uppercase font-bold text-gray-400">Bàn trống ({tables.length - occupiedTables})</span>
+                  <div className="w-2 h-2 rounded-full bg-gray-700"></div>
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Bàn trống ({tables.length - occupiedTables})</span>
                 </div>
               </div>
             </div>
 
             {/* Notifications / Alerts */}
             <div className="bg-white rounded-[2.5rem] p-8 border border-gray-100 shadow-sm relative overflow-hidden">
-               <div className="flex items-center gap-3 mb-6">
-                 <div className="w-10 h-10 bg-orange-50 text-orange-600 rounded-xl flex items-center justify-center">
-                    <AlertCircle size={20} />
-                 </div>
-                 <h3 className="font-bold text-lg text-gray-900">Cảnh báo vận hành</h3>
-               </div>
-               <div className="space-y-4 relative z-10">
-                 {lowStockCount > 0 && (
-                   <Link href="/inventory" className="block p-4 bg-red-50 rounded-2xl border border-red-100 hover:scale-[1.02] transition-transform">
-                      <p className="text-red-700 font-bold text-sm">Kho hàng sắp hết!</p>
-                      <p className="text-red-500 text-xs mt-1">Có {lowStockCount} nguyên liệu dưới mức tối thiểu cần nhập gấp.</p>
-                   </Link>
-                 )}
-                 {todayReservations > 0 && (
-                   <Link href="/reservations" className="block p-4 bg-blue-50 rounded-2xl border border-blue-100 hover:scale-[1.02] transition-transform">
-                      <p className="text-blue-700 font-bold text-sm">Lịch đặt bàn</p>
-                      <p className="text-blue-500 text-xs mt-1">Hôm nay có {todayReservations} lượt đặt bàn cần chuẩn bị.</p>
-                   </Link>
-                 )}
-                 {promotions.filter((p:any) => !p.isActive).length > 0 && (
-                   <Link href="/promotions" className="block p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:scale-[1.02] transition-transform">
-                      <p className="text-gray-700 font-bold text-sm">Khuyến mãi mới</p>
-                      <p className="text-gray-500 text-xs mt-1">Có chương trình khuyến mãi chưa kích hoạt.</p>
-                   </Link>
-                 )}
-               </div>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-orange-50 text-orange-600 rounded-xl flex items-center justify-center">
+                  <AlertCircle size={20} />
+                </div>
+                <h3 className="font-bold text-lg text-gray-900">Cảnh báo vận hành</h3>
+              </div>
+              <div className="space-y-4 relative z-10">
+                {lowStockCount > 0 && (
+                  <Link href="/inventory" className="block p-4 bg-red-50 rounded-2xl border border-red-100 hover:scale-[1.02] transition-transform">
+                    <p className="text-red-700 font-bold text-sm">Kho hàng sắp hết!</p>
+                    <p className="text-red-500 text-xs mt-1">Có {lowStockCount} nguyên liệu dưới mức tối thiểu cần nhập gấp.</p>
+                  </Link>
+                )}
+                {periodReservations > 0 && (
+                  <Link href="/reservations" className="block p-4 bg-blue-50 rounded-2xl border border-blue-100 hover:scale-[1.02] transition-transform">
+                    <p className="text-blue-700 font-bold text-sm">Lịch đặt bàn</p>
+                    <p className="text-blue-500 text-xs mt-1">
+                      {filter === 'today' ? 'Hôm nay' : filter === 'week' ? 'Tuần này' : 'Tháng này'} có {periodReservations} lượt đặt bàn cần chuẩn bị.
+                    </p>
+                  </Link>
+                )}
+                {promotions.filter((p: any) => !p.isActive).length > 0 && (
+                  <Link href="/promotions" className="block p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:scale-[1.02] transition-transform">
+                    <p className="text-gray-700 font-bold text-sm">Khuyến mãi mới</p>
+                    <p className="text-gray-500 text-xs mt-1">Có chương trình khuyến mãi chưa kích hoạt.</p>
+                  </Link>
+                )}
+              </div>
             </div>
           </div>
         </div>

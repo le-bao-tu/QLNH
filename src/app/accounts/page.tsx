@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import { useAuth } from '@/lib/auth'
 import api from '@/lib/api'
+import { useRoles } from '@/hooks/useApi'
 import {
   UserRound, UserPlus, Trash2, Shield, ChefHat,
   User, CreditCard, Users, Eye, EyeOff, Building2,
@@ -13,21 +14,14 @@ import { SelectBox } from '@/components/SelectBox'
 import { useToast } from '@/hooks/useToast'
 import { ConfirmModal } from '@/components/ConfirmModal'
 
-const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
-  owner:     { label: 'Chủ sở hữu', color: 'text-purple-700', bg: 'bg-purple-100', icon: Shield },
-  manager:   { label: 'Quản lý',    color: 'text-blue-700',   bg: 'bg-blue-100',   icon: Users },
-  cashier:   { label: 'Thu ngân',   color: 'text-green-700',  bg: 'bg-green-100',  icon: CreditCard },
-  waiter:    { label: 'Phục vụ',    color: 'text-orange-700', bg: 'bg-orange-100', icon: User },
-  chef:      { label: 'Bếp trưởng', color: 'text-red-700',    bg: 'bg-red-100',    icon: ChefHat },
-  bartender: { label: 'Pha chế',    color: 'text-cyan-700',   bg: 'bg-cyan-100',   icon: UserRound },
-}
-
 interface Account {
   id: string
   username: string
   email: string
   fullName: string
-  role: string
+  roleId: string
+  roleName: string
+  isOwner: boolean
   restaurantId: string
   branchId: string
   createdAt: string
@@ -39,16 +33,8 @@ interface Branch {
 }
 
 const defaultForm = {
-  username: '', email: '', password: '', fullName: '', role: 'waiter'
+  username: '', email: '', password: '', fullName: '', roleId: ''
 }
-
-const accountTypes = [
-  { value: 'manager', label: 'Quản lý' },
-  { value: 'cashier', label: 'Thu ngân' },
-  { value: 'waiter', label: 'Phục vụ' },
-  { value: 'chef', label: 'Bếp trưởng' },
-  { value: 'bartender', label: 'Pha chế' },
-]
 
 export default function AccountsPage() {
   const [mounted, setMounted] = useState(false)
@@ -58,6 +44,7 @@ export default function AccountsPage() {
 
   const [accounts, setAccounts] = useState<Account[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
+  const { data: roles = [] } = useRoles(restaurantId)
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
@@ -68,8 +55,10 @@ export default function AccountsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null)
   const toast = useToast()
 
-  const isOwner = user?.role?.toLowerCase() === 'owner'
-  const isManager = user?.role?.toLowerCase() === 'manager' || isOwner
+  const isOwner = user?.isOwner
+
+  const customRole = roles.find((r: any) => r.id === user?.roleId)
+  const isManager = isOwner || (customRole?.permissions || []).includes('ACCOUNTS')
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')
   const activeBranchId = isOwner ? selectedBranchId : (user?.branchId || '')
@@ -117,7 +106,7 @@ export default function AccountsPage() {
         await api.put(`/api/auth/users/${editingAccount.id}`, {
           email: form.email,
           fullName: form.fullName,
-          role: form.role,
+          roleId: form.roleId,
           branchId: form.branchId,
           password: form.password || undefined // Nếu trống thì không gửi password
         })
@@ -131,7 +120,7 @@ export default function AccountsPage() {
         })
         toast.success('Tạo tài khoản thành công!')
       }
-      
+
       setShowCreate(false)
       setEditingAccount(null)
       setForm({ ...defaultForm, branchId: activeBranchId })
@@ -158,7 +147,7 @@ export default function AccountsPage() {
   const filtered = accounts.filter(a =>
     a.fullName.toLowerCase().includes(search.toLowerCase()) ||
     a.username.toLowerCase().includes(search.toLowerCase()) ||
-    a.role.toLowerCase().includes(search.toLowerCase())
+    a.roleId.toLowerCase().includes(search.toLowerCase())
   )
 
   const getBranchName = (id: string) => branches.find(b => b.id === id)?.name || 'Chưa xác định'
@@ -183,13 +172,13 @@ export default function AccountsPage() {
             <div className="flex items-center gap-3">
               {isOwner && (
                 <div className="w-64">
-                   <SelectBox 
-                    options={[{id: '', name: 'Tất cả chi nhánh'}, ...branches]} 
-                    optionLabel='name' 
-                    optionValue='id' 
-                    onChange={val => setSelectedBranchId(val)} 
+                  <SelectBox
+                    options={[{ id: '', name: 'Tất cả chi nhánh' }, ...branches]}
+                    optionLabel='name'
+                    optionValue='id'
+                    onChange={val => setSelectedBranchId(val)}
                     value={selectedBranchId}
-                   />
+                  />
                 </div>
               )}
               <button
@@ -208,18 +197,18 @@ export default function AccountsPage() {
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {Object.entries(ROLE_CONFIG).map(([role, cfg]) => {
-            const count = accounts.filter(a => a.role === role).length
-            const Icon = cfg.icon
+        <div className="flex flex-wrap gap-4">
+          {roles.map((role: any) => {
+            const count = accounts.filter(a => a.roleId === role.id).length
+            if (count === 0) return null;
             return (
-              <div key={role} className={`${cfg.bg} rounded-3xl p-4 flex items-center gap-4`}>
+              <div key={role.id} className={`bg-gray-100 rounded-3xl p-4 flex items-center gap-4 min-w-[200px] flex-1`}>
                 <div className={`w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm`}>
-                  <Icon size={20} className={cfg.color} />
+                  <Shield size={20} className="text-gray-700" />
                 </div>
                 <div>
-                  <p className={`text-2xl font-black ${cfg.color}`}>{count}</p>
-                  <p className={`text-xs font-bold uppercase tracking-wider ${cfg.color} opacity-70`}>{cfg.label}</p>
+                  <p className={`text-2xl font-black text-gray-700`}>{count}</p>
+                  <p className={`text-xs font-bold uppercase tracking-wider text-gray-700 opacity-70`}>{role.name}</p>
                 </div>
               </div>
             )
@@ -266,8 +255,11 @@ export default function AccountsPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {filtered.map((acc) => {
-                    const cfg = ROLE_CONFIG[acc.role] || { label: acc.role, color: 'text-gray-700', bg: 'bg-gray-100', icon: User }
-                    const Icon = cfg.icon
+                    const customRole = roles.find((r: any) => r.id === acc.roleId)
+                    const cfg = customRole ? { label: customRole.name, color: 'text-gray-700', bg: 'bg-gray-100', icon: Shield }
+                      : { label: 'Chủ sở hữu', color: 'text-purple-700', bg: 'bg-purple-100', icon: Shield }
+
+                    const Icon = cfg?.icon
                     const isMe = acc.id === user?.id
                     return (
                       <tr key={acc.id} className={`hover:bg-gray-50/50 transition-colors ${isMe ? 'bg-indigo-50/30' : ''}`}>
@@ -301,7 +293,7 @@ export default function AccountsPage() {
                         {isOwner && (
                           <td className="px-4 py-5 text-right">
                             <div className="flex items-center justify-end gap-1">
-                              {!isMe && acc.role !== 'Owner' && (
+                              {!isMe && acc?.isOwner !== true && (
                                 <>
                                   <button
                                     onClick={() => {
@@ -311,7 +303,7 @@ export default function AccountsPage() {
                                         email: acc.email,
                                         password: '',
                                         fullName: acc.fullName,
-                                        role: acc.role,
+                                        roleId: acc.roleId,
                                         branchId: acc.branchId
                                       })
                                       setShowCreate(true)
@@ -368,7 +360,7 @@ export default function AccountsPage() {
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Username *</label>
                   <input
-                    required 
+                    required
                     disabled={!!editingAccount}
                     value={form.username}
                     onChange={e => setForm(p => ({ ...p, username: e.target.value }))}
@@ -390,7 +382,7 @@ export default function AccountsPage() {
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">{editingAccount ? 'Mật khẩu mới' : 'Mật khẩu *'}</label>
                 <div className="relative">
                   <input
-                    required={!editingAccount} 
+                    required={!editingAccount}
                     type={showPass ? 'text' : 'password'} value={form.password}
                     onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
                     className="w-full bg-gray-50 rounded-2xl px-4 py-3 pr-12 outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm"
@@ -405,13 +397,19 @@ export default function AccountsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Vai trò *</label>
-                  <SelectBox options={accountTypes} optionLabel='label' optionValue='value' onChange={val => setForm(p => ({ ...p, role: val }))} value={form.role}/>
+                  <SelectBox
+                    options={roles.map((r: any) => ({ value: r.id, label: r.name }))}
+                    optionLabel='label'
+                    optionValue='value'
+                    onChange={val => setForm(p => ({ ...p, roleId: val }))}
+                    value={form.roleId}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Chi nhánh *</label>
 
-                  <SelectBox options={branches} optionLabel='name' optionValue='id' onChange={val => setForm(p => ({ ...p, branchId: val }))} value={form.branchId}/>
-                  </div>
+                  <SelectBox options={branches} optionLabel='name' optionValue='id' onChange={val => setForm(p => ({ ...p, branchId: val }))} value={form.branchId} />
+                </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowCreate(false)}

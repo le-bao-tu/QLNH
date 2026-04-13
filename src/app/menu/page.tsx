@@ -2,7 +2,7 @@
 
 import { useState, useRef, JSX } from 'react'
 import AuthLayout from '@/components/AuthLayout'
-import { useMenuCategories, useMenuItems, useCreateMenuItem, useUpdateMenuItem, useDeleteMenuItem, useBranches } from '@/hooks/useApi'
+import { useMenuCategories, useMenuItems, useCreateMenuItem, useUpdateMenuItem, useDeleteMenuItem, useBranches, useMenuItemsInBranch } from '@/hooks/useApi'
 import { Plus, Edit2, Trash2, BookOpen, Search, ToggleLeft, ToggleRight, ImagePlus, X, Loader2 } from 'lucide-react'
 import api from '@/lib/api'
 import { useQueryClient } from '@tanstack/react-query'
@@ -20,10 +20,15 @@ export default function MenuPage() {
   const { user } = useAuth()
   const restaurantId = user?.restaurantId || ''
   const toast = useToast()
+  const isOwner = user?.isOwner
+  const branchId = user?.branchId || ''
 
   const { data: categories = [] } = useMenuCategories(restaurantId)
-  const { data: items = [], isLoading } = useMenuItems(restaurantId)
+  const { data: itemsInRestaurant = [], isLoading: isItemsInRestaurantLoading } = useMenuItems(restaurantId)
+  const { data: itemsInBranch = [], isLoading: isItemsInBranchLoading } = useMenuItemsInBranch(branchId)
   const { data: branches = [] } = useBranches(restaurantId)
+  const items = isOwner ? itemsInRestaurant : itemsInBranch
+
   const createItem = useCreateMenuItem()
   const updateItem = useUpdateMenuItem()
   const deleteItem = useDeleteMenuItem()
@@ -36,11 +41,11 @@ export default function MenuPage() {
   const [editItem, setEditItem] = useState<MenuItem | null>(null)
   const [catForm, setCatForm] = useState({ name: '', sortOrder: '0' })
   const [previewCombo, setPreviewCombo] = useState<MenuItem | null>(null)
-  const [confirmDialog, setConfirmDialog] = useState<{isOpen: boolean, itemId: string | null}>({isOpen: false, itemId: null})
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, itemId: string | null }>({ isOpen: false, itemId: null })
   const [itemForm, setItemForm] = useState<{ name: string; price: string; description: string; unit: string; categoryId: string; sortOrder: string; imageUrl: string; itemType: string; comboItemIds: string[] }>({
     name: '', price: '', description: '', unit: 'phần', categoryId: '', sortOrder: '0', imageUrl: '', itemType: 'single', comboItemIds: []
   })
-  const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([])
+  const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([branchId])
   const [saving, setSaving] = useState(false)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string>('')
@@ -254,7 +259,7 @@ export default function MenuPage() {
                         <button className="btn btn-secondary btn-sm" onClick={() => handleEditItem(item)}>
                           <Edit2 size={13} />
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); setConfirmDialog({isOpen: true, itemId: item.id}) }} className="btn btn-danger btn-sm">
+                        <button onClick={(e) => { e.stopPropagation(); setConfirmDialog({ isOpen: true, itemId: item.id }) }} className="btn btn-danger btn-sm">
                           <Trash2 size={13} />
                         </button>
                       </div>
@@ -265,7 +270,7 @@ export default function MenuPage() {
             </table>
             {filteredItems.length === 0 && (
               <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
-                {isLoading ? 'Đang tải...' : 'Không có món nào'}
+                {isItemsInRestaurantLoading || isItemsInBranchLoading ? 'Đang tải...' : 'Không có món nào'}
               </div>
             )}
           </div>
@@ -406,15 +411,19 @@ export default function MenuPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 5, color: '#374151' }}>Chi nhánh áp dụng</label>
-                    <CheckboxMultiSelect
-                      options={branches as Array<{ id: string; name: string }>}
-                      value={selectedBranchIds}
-                      onChange={setSelectedBranchIds}
-                      placeholder="Chọn chi nhánh..."
-                    />
-                  </div>
+                  {
+                    isOwner && (
+                      <div>
+                        <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 5, color: '#374151' }}>Chi nhánh áp dụng</label>
+                        <CheckboxMultiSelect
+                          options={branches as Array<{ id: string; name: string }>}
+                          value={selectedBranchIds}
+                          onChange={setSelectedBranchIds}
+                          placeholder="Chọn chi nhánh..."
+                        />
+                      </div>
+                    )
+                  }
 
                   <div style={{ flex: 1 }} />
                   <div style={{ display: 'flex', gap: 10 }}>
@@ -552,8 +561,8 @@ export default function MenuPage() {
           title="Xác nhận xóa món"
           message="Bạn có chắc chắn muốn xóa món này không? Hành động này không thể hoàn tác."
           type="danger"
-          onConfirm={() => { if (confirmDialog.itemId) { deleteItem.mutate(confirmDialog.itemId); setConfirmDialog({isOpen: false, itemId: null}) } }}
-          onCancel={() => setConfirmDialog({isOpen: false, itemId: null})}
+          onConfirm={() => { if (confirmDialog.itemId) { deleteItem.mutate(confirmDialog.itemId); setConfirmDialog({ isOpen: false, itemId: null }) } }}
+          onCancel={() => setConfirmDialog({ isOpen: false, itemId: null })}
         />
       </div>
     </AuthLayout>

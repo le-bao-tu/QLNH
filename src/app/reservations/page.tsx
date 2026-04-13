@@ -53,7 +53,7 @@ const statusConfig: Record<string, { label: string; color: string; icon: any; bg
 
 export default function ReservationsPage() {
   const { user } = useAuth()
-  const isOwner = user?.role?.toLowerCase() === 'owner'
+  const isOwner = user?.isOwner
   const restaurantId = user?.restaurantId || ''
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')

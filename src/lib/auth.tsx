@@ -2,21 +2,19 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import api from '@/lib/api'
-import { set } from 'zod'
 import { jwtDecode } from 'jwt-decode'
 import { logUserAction, AuditModules } from '@/lib/audit'
-
-// ⚡ DEV ONLY: Đặt thành null để bật tính năng đăng nhập thật
-const FAKE_USER: User | null = null
 
 interface User {
   id: string
   username: string
   email: string
   fullName: string
-  role: string
+  roleId: string
+  roleName: string
   restaurantId?: string
   branchId?: string
+  isOwner?: boolean
 }
 
 interface AuthContextType {
@@ -43,11 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Nếu đã có FAKE_USER thì bỏ qua restore từ localStorage
-    if (FAKE_USER) {
-      setIsLoading(false)
-      return
-    }
     const restore = async () => {
       try {
         const stored = localStorage.getItem('user')
@@ -74,16 +67,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           username,
           email: parseJwt(data.token)?.email || '',
           fullName: parseJwt(data.token)?.fullName || username,
-          role: parseJwt(data.token)?.role || 'User',
-          restaurantId: parseJwt(data.token)?.restaurantId,
-          branchId: parseJwt(data.token)?.branchId,
+          roleId: parseJwt(data.token)?.roleId as string,
+          roleName: parseJwt(data.token)?.roleName as string,
+          isOwner: parseJwt(data.token)?.isOwner as boolean,
+          restaurantId: parseJwt(data.token)?.restaurantId as string,
+          branchId: parseJwt(data.token)?.branchId as string,
         }
         localStorage.setItem('user', JSON.stringify(userData))
-        console.log(userData);
-        
+
         setUser(userData)
         await logUserAction({
-          action: `Đăng nhập hệ thống: ${userData.fullName} (${userData.role})`,
+          action: `Đăng nhập hệ thống: ${userData.fullName} (${userData.isOwner ? "Chủ sở hữu" : userData.roleName})`,
           module: AuditModules.AUTH
         })
       }
@@ -105,7 +99,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       action: `Đăng xuất khỏi hệ thống: ${userName}`,
       module: AuditModules.AUTH
     })
-    window.location.href = '/login'
   }
 
   return (
@@ -128,17 +121,19 @@ export function useAuth() {
   return ctx
 }
 
-function parseJwt(token: string): Record<string, string> | null {
+function parseJwt(token: string): Record<string, any> | null {
   try {
     const decoded = jwtDecode<Record<string, string>>(token)
-    
+
     return {
       nameid: decoded['userId'],
       email: decoded['email'],
-      role: decoded['role'],
-      fullName: decoded['fullName'],
-      restaurantId: decoded['restaurantId'] || '',
-      branchId: decoded['branchId'] || '',
+      roleId: decoded['roleId'] as string,
+      roleName: decoded['roleName'] as string,
+      isOwner: decoded['isOwner'] === 'true',
+      fullName: decoded['fullName'] as string,
+      restaurantId: decoded['restaurantId'] as string,
+      branchId: decoded['branchId'] as string,
     }
   } catch { return null }
 }

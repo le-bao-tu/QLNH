@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { useRoles } from '@/hooks/useApi'
 import { ChevronLeft, ChevronRight, Copy, LayoutGrid, CalendarDays, Pencil, Trash2, Plus, Clock, Shuffle, AlertCircle, X } from 'lucide-react'
 import { SelectBox } from '@/components/SelectBox'
 import { useToast } from '@/hooks/useToast'
@@ -38,21 +39,7 @@ interface ShiftAssignment {
 
 const ROLE_CFG: Record<string, { label: string; badge: string }> = {
   owner: { label: 'Chủ nhà hàng', badge: 'bg-purple-100 text-purple-700' },
-  manager: { label: 'Quản lý', badge: 'bg-blue-100 text-blue-700' },
-  cashier: { label: 'Thu ngân', badge: 'bg-green-100 text-green-700' },
-  waiter: { label: 'Phục vụ', badge: 'bg-yellow-100 text-yellow-700' },
-  chef: { label: 'Bếp trưởng', badge: 'bg-orange-100 text-orange-700' },
-  bartender: { label: 'Bartender', badge: 'bg-pink-100 text-pink-700' },
 }
-
-const roles = [
-  { value: 'owner', label: 'Chủ nhà hàng' },
-  { value: 'manager', label: 'Quản lý' },
-  { value: 'cashier', label: 'Thu ngân' },
-  { value: 'waiter', label: 'Phục vụ' },
-  { value: 'chef', label: 'Bếp trưởng' },
-  { value: 'bartender', label: 'Bartender' },
-]
 
 const DEFAULT_TEMPLATES: ShiftTemplate[] = [
   { id: 't1', name: 'Ca sáng', type: 'fixed', startTime: '06:00', endTime: '14:00', color: '#3b82f6' },
@@ -145,7 +132,10 @@ const MOCK_EMPLOYEES: Employee[] = [
 export default function EmployeesPage() {
   const { user } = useAuth()
   const branchId = user?.branchId || ''
+  const restaurantId = user?.restaurantId || ''
   const toast = useToast()
+  
+  const { data: dbRoles = [] } = useRoles(restaurantId)
 
   const [tab, setTab] = useState<PageTab>('employees')
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -319,7 +309,10 @@ export default function EmployeesPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {displayEmployees.map(emp => {
-                const cfg = ROLE_CFG[emp.role] || { label: emp.role, badge: 'bg-gray-100 text-gray-600' }
+                const customRole = dbRoles.find((r: any) => r.id === emp.role)
+                const cfg = customRole 
+                  ? { label: customRole.name, badge: 'bg-gray-100 text-gray-700' }
+                  : (ROLE_CFG[emp.role] || { label: emp.role, badge: 'bg-gray-100 text-gray-600' })
                 return (
                   <div key={emp.id} className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-all">
                     <div className="flex items-center gap-3 mb-3">
@@ -611,7 +604,13 @@ export default function EmployeesPage() {
                   </div>
                   <div className="form-field">
                     <label className="form-label">Vai trò</label>
-                    <SelectBox options={roles} optionLabel='value' optionValue='label' onChange={val => setEmpForm(p => ({ ...p, role: val }))} value={empForm.role} />
+                    <SelectBox 
+                       options={dbRoles.map((r: any) => ({ value: r.id, label: r.name }))} 
+                       optionLabel='label' 
+                       optionValue='value' 
+                       onChange={val => setEmpForm(p => ({ ...p, role: val }))} 
+                       value={empForm.role} 
+                     />
                   </div>
                 </div>
                 <div className="form-field">

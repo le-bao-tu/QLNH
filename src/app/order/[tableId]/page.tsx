@@ -378,7 +378,7 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar { display: none; }
       `}</style>
-      <ChatBot />
+      {/* <ChatBot /> */}
     </div>
   )
 }

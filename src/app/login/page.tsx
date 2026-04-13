@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { UtensilsCrossed, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { useToast } from '@/hooks/useToast'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -14,6 +15,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const { login } = useAuth()
   const router = useRouter()
+  const { success } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -22,6 +24,7 @@ export default function LoginPage() {
     try {
       await login(username, password)
       router.push('/dashboard')
+      success('Đăng nhập thành công!')
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } }
       setError(axiosErr.response?.data?.message || 'Đăng nhập thất bại')

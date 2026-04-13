@@ -99,6 +99,21 @@ export function useMenuItems(restaurantId: string) {
   })
 }
 
+
+export function useMenuItemsInBranch(branchId: string) {
+  return useQuery({
+    queryKey: ['menu-items', branchId],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/menu/items/branch/${branchId}`)
+      return data
+    },
+    enabled: !!branchId,
+    refetchOnMount: true,
+    staleTime: 0,
+    gcTime: 0,
+  })
+}
+
 export function useCreateMenuItem() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -132,6 +147,28 @@ export function useDeleteMenuItem() {
 }
 
 // ===== ORDERS =====
+export function useOrdersByBranch(branchId: string, config?: any) {
+  return useQuery({
+    queryKey: [branchId],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/orders/branch/${branchId}`)
+      return data
+    },
+    ...config
+  })
+}
+
+export function useOrdersByRestaurant(restaurantId: string, config?: any) {
+  return useQuery({
+    queryKey: [restaurantId],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/orders/restaurant/${restaurantId}`)
+      return data
+    },
+    ...config
+  })
+}
+
 export function useActiveOrders(branchId: string) {
   return useQuery({
     queryKey: ['orders', 'active', branchId],
@@ -243,16 +280,29 @@ export function useProcessPayment() {
   })
 }
 
-export function useRecentPayments(branchId: string) {
+export function useRecentPaymentsInBranch(branchId: string, config?: any) {
   return useQuery({
-    queryKey: ['payments', 'recent', branchId],
+    queryKey: ['payment', 'recent', 'branch', branchId],
     queryFn: async () => {
       // Backend does not have a /recent/branch/id endpoint in PaymentController yet.
       // We will follow the backend singular route pattern.
       const { data } = await api.get(`/api/payment/recent/branch/${branchId}`)
       return data
     },
-    enabled: !!branchId
+    ...config,
+  })
+}
+
+export function useRecentPaymentsInRestaurant(restaurantId: string, config?: any) {
+  return useQuery({
+    queryKey: ['payment', 'recent', 'restaurant', restaurantId],
+    queryFn: async () => {
+      // Backend does not have a /recent/branch/id endpoint in PaymentController yet.
+      // We will follow the backend singular route pattern.
+      const { data } = await api.get(`/api/payment/recent/restaurant/${restaurantId}`)
+      return data
+    },
+    ...config,
   })
 }
 
@@ -335,7 +385,7 @@ export function usePromotions(restaurantId: string) {
       const { data } = await api.get(`/api/promotions/restaurant/${restaurantId}`)
       return data
     },
-    enabled: true,
+    enabled: !!restaurantId,
     refetchOnMount: true,
   })
 }
@@ -351,3 +401,47 @@ export function useAuditLogs(params: { page?: number; pageSize?: number; module?
   })
 }
 
+// ===== ROLES =====
+export function useRoles(restaurantId: string) {
+  return useQuery({
+    queryKey: ['roles', restaurantId],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/roles/restaurant/${restaurantId}`)
+      return data
+    },
+    enabled: !!restaurantId,
+    refetchOnMount: true,
+  })
+}
+
+export function useCreateRole() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (dto: any) => {
+      const { data } = await api.post('/api/roles', dto)
+      return data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['roles'] })
+  })
+}
+
+export function useUpdateRole() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...dto }: any) => {
+      const { data } = await api.put(`/api/roles/${id}`, dto)
+      return data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['roles'] })
+  })
+}
+
+export function useDeleteRole() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/api/roles/${id}`)
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['roles'] })
+  })
+}

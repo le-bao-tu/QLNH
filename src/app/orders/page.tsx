@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import AuthLayout from '@/components/AuthLayout'
-import { useActiveOrders, useUpdateOrderStatus } from '@/hooks/useApi'
+import { useActiveOrders, useOrdersByBranch, useOrdersByRestaurant, useUpdateOrderStatus } from '@/hooks/useApi'
 import { ShoppingCart } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuth } from '@/lib/auth'
@@ -36,11 +36,21 @@ export default function OrdersPage() {
   const restaurantId = user?.restaurantId || ''
   const queryClient = useQueryClient()
   const toast = useToast()
+  const isOwner = user?.isOwner
 
-  const { data: orders = [], isLoading } = useActiveOrders(branchId)
   const { data: restaurant } = useRestaurant(restaurantId)
   const { data: branchs = [] } = useBranches(restaurantId)
-  
+  const { data: ordersByBranch = [], isLoading } = useOrdersByBranch(branchId, {
+    enabled: !isOwner,
+    refetchInterval: 15000,
+  })
+  const { data: ordersByRestaurant = [] } = useOrdersByRestaurant(restaurantId, {
+    enabled: isOwner,
+    refetchInterval: 15000,
+  })
+
+  const orders = isOwner ? ordersByRestaurant as Order[] : ordersByBranch as Order[]
+
   const updateStatus = useMutation({
     mutationFn: ({ id, status }: { id: string, status: string }) => api.patch(`/api/orders/${id}/status`, { status }),
     onSuccess: () => {
@@ -149,9 +159,7 @@ export default function OrdersPage() {
           {[
             { key: 'all', label: 'Tất cả' },
             { key: 'pending', label: 'Chờ xử lý' },
-            { key: 'preparing', label: 'Đang làm' },
-            { key: 'ready', label: 'Sẵn sàng' },
-            { key: 'served', label: 'Đã phục vụ' },
+            { key: 'paid', label: 'Đã thanh toán' },
           ].map(f => (
             <button
               key={f.key}
@@ -244,7 +252,7 @@ export default function OrdersPage() {
                             {item.note && <span style={{ color: '#94a3b8', fontSize: 11, marginLeft: 8 }}>({item.note})</span>}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <span className={`badge badge-${item.status}`} style={{ fontSize: 10 }}>{item.status}</span>
+                            <span className={`badge badge-${item.status}`} style={{ fontSize: 10 }}>{STATUS_MAP[item.status].label}</span>
                             <span style={{ fontWeight: 700, fontSize: 13 }}>{item.subTotal.toLocaleString('vi-VN')}đ</span>
                           </div>
                         </div>

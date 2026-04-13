@@ -48,7 +48,7 @@ const modules = [
 export default function AuditLogsPage() {
   const [mounted, setMounted] = useState(false)
   const { user } = useAuth()
-  const isOwner = user?.role?.toLowerCase() === 'owner'
+  const isOwner = user?.isOwner
   const restaurantId = user?.restaurantId || ''
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>('')
