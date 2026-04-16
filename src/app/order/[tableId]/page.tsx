@@ -371,8 +371,8 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
 
             <div className="p-8 bg-gray-50 border-t space-y-6">
               <div className="flex justify-between items-end">
-                {/* <span className="font-black text-lg text-gray-900 uppercase">Tổng cộng</span> */}
-                {/* <span className="font-black text-2xl text-blue-600">{subtotal.toLocaleString()}đ</span> */}
+                {}
+                {}
               </div>
               <button
                 onClick={handleOrder}
@@ -385,6 +385,8 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
           </div>
         </div>
       )}
+
+
 
       {/* Empty State */}
       {menuItems.length === 0 && !loading && (
