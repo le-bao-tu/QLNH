@@ -275,11 +275,6 @@ export default function POSPage() {
           })
           orderId = order.id
         }
-<<<<<<< HEAD
-=======
-      } else {
-        await createOrder.mutateAsync({ tableId: selectedTable.id, customerId: selectedCustomer?.id, restaurantId: restaurant?.id, guestCount: 1, note: orderNote, voucherCode: appliedPromotion?.code, items: newCart.map(item => ({ menuItemId: item.id, quantity: item.quantity, note: item.note })) })
->>>>>>> master
       }
 
       // 2. Trigger send to kitchen for all 'pending' items (including confirmed QR items and manual staff entries)
@@ -319,7 +314,6 @@ export default function POSPage() {
     } finally { setLoading(false) }
   }
 
-<<<<<<< HEAD
   const handleConfirmOrder = async () => {
     if (!selectedTable?.currentOrderId) return
     setLoading(true)
@@ -384,8 +378,6 @@ export default function POSPage() {
     return `https://img.vietqr.io/image/${restaurant.bankId}-${restaurant.accountNo}-compact2.png?amount=${total}&addInfo=${memo}&accountName=${encodeURIComponent(restaurant.accountName || '')}`
   }
 
-=======
->>>>>>> master
   const handleConfirmPayment = async () => {
     if (!selectedTable) return
     setConfirmDialog({ isOpen: true, action: 'pay' })
