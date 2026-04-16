@@ -275,8 +275,6 @@ export default function POSPage() {
           })
           orderId = order.id
         }
-      } else {
-        await createOrder.mutateAsync({ tableId: selectedTable.id, customerId: selectedCustomer?.id, restaurantId: restaurant?.id, guestCount: 1, note: orderNote, voucherCode: appliedPromotion?.code, items: newCart.map(item => ({ menuItemId: item.id, quantity: item.quantity, note: item.note })) })
       }
 
       // 2. Trigger send to kitchen for all 'pending' items (including confirmed QR items and manual staff entries)
