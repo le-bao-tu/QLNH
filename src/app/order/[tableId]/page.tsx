@@ -367,6 +367,8 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
         </div>
       )}
 
+
+
       {/* Empty State */}
       {menuItems.length === 0 && !loading && (
         <div className="p-12 text-center opacity-30">
