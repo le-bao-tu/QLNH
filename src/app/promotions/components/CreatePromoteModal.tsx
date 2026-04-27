@@ -13,6 +13,9 @@ import { useBranches } from '@/hooks/useApi'
 import { CheckboxMultiSelect } from '@/components/CheckboxMultiSelect'
 import { SelectBox } from '@/components/SelectBox'
 import { useToast } from '@/hooks/useToast'
+import { Formik, useFormik } from 'formik'
+import * as Yup from 'yup'
+import { AlertCircle } from 'lucide-react'
 
 interface Props {
     setShowModal: (isShow: boolean) => void
@@ -44,34 +47,89 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
     const { user } = useAuth()
     const restaurantId = user?.restaurantId || ''
 
-    const isEditMode = !!editPromotion
     const toast = useToast()
-
-    const [form, setForm] = useState(DEFAULT_FORM)
     const [saving, setSaving] = useState(false)
-
-    const [menuItems, setMenuItems] = useState<MenuItemDTO[]>([])
-    const [loadingItems, setLoadingItems] = useState(false)
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([])
-    const [itemSearch, setItemSearch] = useState('')
-
-    // Chi nhánh
-    const { data: branches = [] } = useBranches(restaurantId)
     const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([])
+    const [itemSearch, setItemSearch] = useState('')
+    const [menuItems, setMenuItems] = useState<any[]>([])
+    const [loadingItems, setLoadingItems] = useState(false)
+    const branches = useBranches(restaurantId) || []
+    const isEditMode = Boolean(editPromotion)
 
-    const isItemMode = form.applyTo === 'item'
+    const validationSchema = Yup.object({
+        name: Yup.string().required('Tên khuyến mãi là bắt buộc').max(200, 'Tên không quá 200 ký tự'),
+        discountValue: Yup.number().typeError('Giá trị phải là số').required('Giá trị là bắt buộc').positive('Giá trị phải lớn hơn 0'),
+        startDate: Yup.date().required('Ngày bắt đầu là bắt buộc'),
+        endDate: Yup.date().required('Ngày kết thúc là bắt buộc').min(Yup.ref('startDate'), 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu'),
+        minOrderAmount: Yup.number().typeError('Đơn tối thiểu phải là số').min(0, 'Không được âm'),
+        maxDiscountAmount: Yup.number().typeError('Giảm tối đa phải là số').min(0, 'Không được âm'),
+    });
+
+    const formik = useFormik({
+        initialValues: DEFAULT_FORM,
+        validationSchema,
+        onSubmit: async (values) => {
+            setSaving(true);
+            try {
+                const menuItemIdsStr = values.applyTo === 'item' && selectedItemIds.length > 0
+                    ? JSON.stringify(selectedItemIds)
+                    : null;
+
+                const branchIdsStr = selectedBranchIds.length > 0
+                    ? JSON.stringify(selectedBranchIds)
+                    : null;
+
+                if (isEditMode && editPromotion) {
+                    await api.put(`/api/promotions/${editPromotion.id}`, {
+                        ...values,
+                        maxDiscount: values.maxDiscountAmount,
+                        menuItemIds: menuItemIdsStr,
+                        branchIds: branchIdsStr,
+                    });
+                } else {
+                    await api.post('/api/promotions', {
+                        restaurantId,
+                        ...values,
+                        maxDiscount: values.maxDiscountAmount,
+                        menuItemIds: menuItemIdsStr,
+                        branchIds: branchIdsStr,
+                    });
+                }
+
+                toast.success(isEditMode ? 'Cập nhật khuyến mãi thành công' : 'Tạo khuyến mãi thành công');
+                onSuccess?.();
+                handleClose();
+            } catch (err: any) {
+                console.error(err);
+                toast.error(err.response?.data?.message || 'Có lỗi xảy ra khi lưu khuyến mãi');
+            } finally {
+                setSaving(false);
+            }
+        }
+    });
+
+    const isItemMode = formik.values.applyTo === 'item'
+
+    const handleClose = () => {
+        setShowModal(false);
+        formik.resetForm();
+        setSelectedItemIds([]);
+        setSelectedBranchIds([]);
+        setItemSearch('');
+    }
 
     // Khi editPromotion thay đổi, fill form
     useEffect(() => {
         if (editPromotion) {
-            setForm({
+            formik.setValues({
                 name: editPromotion.name,
                 description: editPromotion.description || '',
                 type: editPromotion.type,
                 applyTo: editPromotion.applyTo,
                 discountValue: editPromotion.discountValue,
                 minOrderAmount: editPromotion.minOrderAmount ?? 0,
-                maxDiscountAmount: editPromotion.maxDiscount ?? editPromotion.maxDiscountAmount ?? 0,
+                maxDiscountAmount: editPromotion.maxDiscount ?? 0,
                 startDate: editPromotion.startDate?.split('T')[0] ?? new Date().toISOString().split('T')[0],
                 endDate: editPromotion.endDate?.split('T')[0] ?? new Date().toISOString().split('T')[0],
                 isVoucherRequired: false,
@@ -81,8 +139,6 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
             if (editPromotion.menuItemIds) {
                 try {
                     const parsed = JSON.parse(editPromotion.menuItemIds)
-                    console.log(parsed);
-
                     setSelectedItemIds(Array.isArray(parsed) ? parsed : [])
                 } catch {
                     setSelectedItemIds(editPromotion.menuItemIds.split(',').filter(Boolean))
@@ -102,7 +158,7 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                 setSelectedBranchIds([])
             }
         } else {
-            setForm(DEFAULT_FORM)
+            formik.resetForm();
             setSelectedItemIds([])
             setSelectedBranchIds([])
         }
@@ -136,65 +192,6 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
     const filteredItems = menuItems.filter(item =>
         item.name.toLowerCase().includes(itemSearch.toLowerCase())
     )
-
-    const handleClose = () => {
-        setShowModal(false)
-        setForm(DEFAULT_FORM)
-        setSelectedItemIds([])
-        setSelectedBranchIds([])
-        setItemSearch('')
-    }
-
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault()
-        setSaving(true)
-        try {
-            const menuItemIdsStr = isItemMode && selectedItemIds.length > 0
-                ? JSON.stringify(selectedItemIds)
-                : null
-
-            const branchIdsStr = selectedBranchIds.length > 0
-                ? JSON.stringify(selectedBranchIds)
-                : null
-
-            if (isEditMode && editPromotion) {
-                // Update
-                await api.put(`/api/promotions/${editPromotion.id}`, {
-                    name: form.name,
-                    description: form.description,
-                    type: form.type,
-                    applyTo: form.applyTo,
-                    discountValue: form.discountValue,
-                    minOrderAmount: form.minOrderAmount,
-                    maxDiscount: form.maxDiscountAmount,
-                    startDate: form.startDate,
-                    endDate: form.endDate,
-                    menuItemIds: menuItemIdsStr,
-                    branchIds: branchIdsStr,
-                })
-            } else {
-                // Create
-                await api.post('/api/promotions', {
-                    restaurantId: restaurantId,
-                    ...form,
-                    maxDiscount: form.maxDiscountAmount,
-                    menuItemIds: menuItemIdsStr,
-                    branchIds: branchIdsStr,
-                    ...(isItemMode ? { menuItemIds: menuItemIdsStr } : {})
-                })
-            }
-
-            toast.success(isEditMode ? 'Cập nhật khuyến mãi thành công' : 'Tạo khuyến mãi thành công')
-            onSuccess?.()
-            handleClose()
-        } catch (err) {
-            console.error(err)
-            toast.error('Có lỗi xảy ra khi lưu khuyến mãi')
-        } finally {
-            setSaving(false)
-        }
-    }
 
     return (
         visible &&
@@ -231,29 +228,34 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                     {/* ═══ LEFT — Promotion form ═══ */}
                     <form
                         id="promotion-form"
-                        onSubmit={handleSubmit}
+                        onSubmit={formik.handleSubmit}
                         className="flex flex-col overflow-y-auto p-8 gap-5 flex-shrink-0"
                         style={{ width: isItemMode ? '50%' : '100%', borderRight: isItemMode ? '1px solid #f3f4f6' : 'none' }}
                     >
-                        {/* Tên */}
-                        <div>
+                        <div id="promotion-form-content">
                             <label className="block text-sm font-bold text-gray-700 mb-2">Tên chương trình *</label>
                             <input
-                                required
+                                name="name"
                                 type="text"
-                                value={form.name}
-                                onChange={e => setForm({ ...form, name: e.target.value })}
-                                className="w-full bg-gray-50 border-0 rounded-2xl px-5 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm"
+                                value={formik.values.name}
+                                onChange={formik.handleChange}
+                                onBlur={formik.handleBlur}
+                                className={`w-full bg-gray-50 border-0 rounded-2xl px-5 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm ${formik.touched.name && formik.errors.name ? 'ring-2 ring-red-500' : ''}`}
                                 placeholder="VD: Mừng khai trương, Giảm giá cuối tuần..."
                             />
+                            {formik.touched.name && formik.errors.name && (
+                                <p className="text-red-500 text-xs mt-1">{formik.errors.name}</p>
+                            )}
                         </div>
 
                         {/* Mô tả */}
                         <div>
                             <label className="block text-sm font-bold text-gray-700 mb-2">Mô tả chi tiết</label>
                             <textarea
-                                value={form.description}
-                                onChange={e => setForm({ ...form, description: e.target.value })}
+                                name="description"
+                                value={formik.values.description}
+                                onChange={formik.handleChange}
+                                onBlur={formik.handleBlur}
                                 rows={2}
                                 className="w-full bg-gray-50 border-0 rounded-2xl px-5 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all resize-none text-sm"
                                 placeholder="Mô tả các điều kiện áp dụng..."
@@ -264,22 +266,32 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-2">Loại giảm giá</label>
-                                <SelectBox options={promoteTypes} optionLabel='label' optionValue='value' onChange={val => setForm({ ...form, type: val })} value={form.type} />
+                                <SelectBox
+                                    options={promoteTypes}
+                                    optionLabel='label'
+                                    optionValue='value'
+                                    onChange={val => formik.setFieldValue('type', val)}
+                                    value={formik.values.type}
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-2">Giá trị giảm *</label>
                                 <div className="relative">
                                     <input
-                                        required
+                                        name="discountValue"
                                         type="number"
-                                        value={form.discountValue}
-                                        onChange={e => setForm({ ...form, discountValue: Number(e.target.value) })}
-                                        className="w-full bg-gray-50 border-0 rounded-2xl pl-4 pr-10 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm"
+                                        value={formik.values.discountValue}
+                                        onChange={formik.handleChange}
+                                        onBlur={formik.handleBlur}
+                                        className={`w-full bg-gray-50 border-0 rounded-2xl pl-4 pr-10 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm ${formik.touched.discountValue && formik.errors.discountValue ? 'ring-2 ring-red-500' : ''}`}
                                     />
                                     <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400 text-sm">
-                                        {form.type === 'percentage' ? '%' : 'đ'}
+                                        {formik.values.type === 'percentage' ? '%' : 'đ'}
                                     </span>
                                 </div>
+                                {formik.touched.discountValue && formik.errors.discountValue && (
+                                    <p className="text-red-500 text-xs mt-1">{formik.errors.discountValue}</p>
+                                )}
                             </div>
                         </div>
 
@@ -288,49 +300,68 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-2">Ngày bắt đầu</label>
                                 <input
+                                    name="startDate"
                                     type="date"
-                                    value={form.startDate}
-                                    onChange={e => setForm({ ...form, startDate: e.target.value })}
-                                    className="w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm"
+                                    value={formik.values.startDate}
+                                    onChange={formik.handleChange}
+                                    onBlur={formik.handleBlur}
+                                    className={`w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm ${formik.touched.startDate && formik.errors.startDate ? 'ring-2 ring-red-500' : ''}`}
                                 />
+                                {formik.touched.startDate && formik.errors.startDate && (
+                                    <p className="text-red-500 text-xs mt-1">{formik.errors.startDate}</p>
+                                )}
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 mb-2">Ngày kết thúc</label>
                                 <input
+                                    name="endDate"
                                     type="date"
-                                    value={form.endDate}
-                                    onChange={e => setForm({ ...form, endDate: e.target.value })}
-                                    className="w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm"
+                                    value={formik.values.endDate}
+                                    onChange={formik.handleChange}
+                                    onBlur={formik.handleBlur}
+                                    className={`w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm ${formik.touched.endDate && formik.errors.endDate ? 'ring-2 ring-red-500' : ''}`}
                                 />
+                                {formik.touched.endDate && formik.errors.endDate && (
+                                    <p className="text-red-500 text-xs mt-1">{formik.errors.endDate}</p>
+                                )}
                             </div>
                         </div>
 
                         {/* Đơn tối thiểu + Giảm tối đa */}
                         <div className="grid grid-cols-2 gap-4">
                             {
-                                form.applyTo !== 'item' &&
+                                formik.values.applyTo !== 'item' &&
                                 < div >
                                     <label className="block text-sm font-bold text-gray-700 mb-2">Đơn tối thiểu (đ)</label>
                                     <input
+                                        name="minOrderAmount"
                                         type="number"
-                                        value={form.minOrderAmount}
-                                        onChange={e => setForm({ ...form, minOrderAmount: Number(e.target.value) })}
-                                        className="w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm"
+                                        value={formik.values.minOrderAmount}
+                                        onChange={formik.handleChange}
+                                        onBlur={formik.handleBlur}
+                                        className={`w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm ${formik.touched.minOrderAmount && formik.errors.minOrderAmount ? 'ring-2 ring-red-500' : ''}`}
                                     />
+                                    {formik.touched.minOrderAmount && formik.errors.minOrderAmount && (
+                                        <p className="text-red-500 text-xs mt-1">{formik.errors.minOrderAmount}</p>
+                                    )}
                                 </div>
                             }
 
                             {
-                                (form.type !== 'fixed_amount' && form.applyTo !== 'item') &&
+                                (formik.values.type !== 'fixed_amount' && formik.values.applyTo !== 'item') &&
                                 < div >
                                     <label className="block text-sm font-bold text-gray-700 mb-2">Giảm tối đa (đ)</label>
                                     <input
+                                        name="maxDiscountAmount"
                                         type="number"
-                                        disabled={form.type === 'fixed_amount' || form.applyTo === 'item'}
-                                        value={form.maxDiscountAmount}
-                                        onChange={e => setForm({ ...form, maxDiscountAmount: Number(e.target.value) })}
-                                        className={`w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm ${form.type === 'fixed_amount' ? 'opacity-50' : ''}`}
+                                        value={formik.values.maxDiscountAmount}
+                                        onChange={formik.handleChange}
+                                        onBlur={formik.handleBlur}
+                                        className={`w-full bg-gray-50 border-0 rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-blue-600 outline-none transition-all text-sm ${formik.touched.maxDiscountAmount && formik.errors.maxDiscountAmount ? 'ring-2 ring-red-500' : ''}`}
                                     />
+                                    {formik.touched.maxDiscountAmount && formik.errors.maxDiscountAmount && (
+                                        <p className="text-red-500 text-xs mt-1">{formik.errors.maxDiscountAmount}</p>
+                                    )}
                                 </div>
                             }
                         </div>
@@ -347,9 +378,9 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                                         key={opt.value}
                                         type="button"
                                         onClick={() => {
-                                            setForm({ ...form, applyTo: opt.value as any })
+                                            formik.setFieldValue('applyTo', opt.value)
                                         }}
-                                        className={`text-left px-4 py-3 rounded-2xl border-2 transition-all ${form.applyTo === opt.value
+                                        className={`text-left px-4 py-3 rounded-2xl border-2 transition-all ${formik.values.applyTo === opt.value
                                             ? 'border-blue-600 bg-blue-50 text-blue-700'
                                             : 'border-gray-100 bg-gray-50 text-gray-500 hover:border-gray-200'
                                             }`}
@@ -365,7 +396,7 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                         <div>
                             <label className="block text-sm font-bold text-gray-700 mb-2">Chi nhánh áp dụng</label>
                             <CheckboxMultiSelect
-                                options={branches as Array<{ id: string; name: string }>}
+                                options={branches.data as Array<{ id: string, name: string }> || []}
                                 value={selectedBranchIds}
                                 onChange={setSelectedBranchIds}
                                 placeholder="Chọn chi nhánh..."
@@ -428,92 +459,100 @@ export function CreatePromoteModal({ setShowModal, visible, editPromotion, onSuc
                                         <p className="text-sm">Đang tải danh sách món...</p>
                                     </div>
                                 ) : (
-                                    <table className="w-full text-sm">
-                                        <thead className="sticky top-0 bg-white z-10">
-                                            <tr className="border-b border-gray-100">
-                                                <th className="px-6 py-3 w-10">
-                                                    <button
-                                                        type="button"
-                                                        onClick={toggleAll}
-                                                        className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${selectedItemIds.length === filteredItems.length && filteredItems.length > 0
-                                                            ? 'bg-blue-600 border-blue-600'
-                                                            : 'border-gray-300 hover:border-blue-400'
-                                                            }`}
-                                                    >
-                                                        {selectedItemIds.length === filteredItems.length && filteredItems.length > 0 && (
-                                                            <Check size={11} className="text-white" strokeWidth={3} />
-                                                        )}
-                                                    </button>
-                                                </th>
-                                                <th className="px-4 py-3 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Tên món</th>
-                                                <th className="px-4 py-3 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Ảnh</th>
-                                                <th className="px-4 py-3 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Danh mục</th>
-                                                <th className="px-4 py-3 text-right font-semibold text-gray-500 text-xs uppercase tracking-wider">Giá</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {filteredItems.length === 0 ? (
-                                                <tr>
-                                                    <td colSpan={5}>
-                                                        <div className="flex flex-col items-center py-16 text-gray-400">
-                                                            <UtensilsCrossed size={36} className="mb-3 opacity-40" />
-                                                            <p className="font-medium">Không tìm thấy món ăn</p>
-                                                            <p className="text-xs mt-1 opacity-70">Thử thay đổi từ khóa tìm kiếm</p>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ) : (
-                                                filteredItems.map((item, idx) => {
-                                                    const selected = selectedItemIds.includes(item.id)
-                                                    return (
-                                                        <tr
-                                                            key={item.id}
-                                                            onClick={() => toggleItem(item.id)}
-                                                            className={`cursor-pointer border-b border-gray-50 transition-colors ${selected
-                                                                ? 'bg-blue-50 hover:bg-blue-100/70'
-                                                                : idx % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50/40 hover:bg-gray-100/60'
+                                    <div>
+                                        {isItemMode && selectedItemIds.length === 0 && (
+                                            <div className="bg-amber-50 border-b border-amber-100 p-3 flex items-center gap-2 text-amber-700 text-xs font-bold">
+                                                <AlertCircle size={14} />
+                                                Vui lòng chọn ít nhất một món ăn
+                                            </div>
+                                        )}
+                                        <table className="w-full text-sm">
+                                            <thead className="sticky top-0 bg-white z-10">
+                                                <tr className="border-b border-gray-100">
+                                                    <th className="px-6 py-3 w-10">
+                                                        <button
+                                                            type="button"
+                                                            onClick={toggleAll}
+                                                            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${selectedItemIds.length === filteredItems.length && filteredItems.length > 0
+                                                                ? 'bg-blue-600 border-blue-600'
+                                                                : 'border-gray-300 hover:border-blue-400'
                                                                 }`}
                                                         >
-                                                            <td className="px-6 py-3">
-                                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${selected ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
-                                                                    {selected && <Check size={11} className="text-white" strokeWidth={3} />}
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-4 py-3">
-                                                                <span className={`font-medium ${selected ? 'text-blue-700' : 'text-gray-800'}`}>
-                                                                    {item.name}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-4 py-3">
-                                                                {item.imageUrl ? (
-                                                                    <img src={item.imageUrl} alt={item.name} className="w-10 h-10 object-cover rounded-md" />
-                                                                ) : (
-                                                                    <div className="w-10 h-10 bg-gray-200 border border-gray-300 rounded-md flex items-center justify-center">
-                                                                        <span className="text-gray-500 text-xs">IMG</span>
+                                                            {selectedItemIds.length === filteredItems.length && filteredItems.length > 0 && (
+                                                                <Check size={11} className="text-white" strokeWidth={3} />
+                                                            )}
+                                                        </button>
+                                                    </th>
+                                                    <th className="px-4 py-3 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Tên món</th>
+                                                    <th className="px-4 py-3 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Ảnh</th>
+                                                    <th className="px-4 py-3 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Danh mục</th>
+                                                    <th className="px-4 py-3 text-right font-semibold text-gray-500 text-xs uppercase tracking-wider">Giá</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {filteredItems.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={5}>
+                                                            <div className="flex flex-col items-center py-16 text-gray-400">
+                                                                <UtensilsCrossed size={36} className="mb-3 opacity-40" />
+                                                                <p className="font-medium">Không tìm thấy món ăn</p>
+                                                                <p className="text-xs mt-1 opacity-70">Thử thay đổi từ khóa tìm kiếm</p>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    filteredItems.map((item, idx) => {
+                                                        const selected = selectedItemIds.includes(item.id)
+                                                        return (
+                                                            <tr
+                                                                key={item.id}
+                                                                onClick={() => toggleItem(item.id)}
+                                                                className={`cursor-pointer border-b border-gray-50 transition-colors ${selected
+                                                                    ? 'bg-blue-50 hover:bg-blue-100/70'
+                                                                    : idx % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50/40 hover:bg-gray-100/60'
+                                                                    }`}
+                                                            >
+                                                                <td className="px-6 py-3">
+                                                                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${selected ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
+                                                                        {selected && <Check size={11} className="text-white" strokeWidth={3} />}
                                                                     </div>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3">
-                                                                {item.categoryName ? (
-                                                                    <span className="bg-gray-100 text-gray-600 px-2.5 py-0.5 rounded-full text-xs font-medium">
-                                                                        {item.categoryName}
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    <span className={`font-medium ${selected ? 'text-blue-700' : 'text-gray-800'}`}>
+                                                                        {item.name}
                                                                     </span>
-                                                                ) : (
-                                                                    <span className="text-gray-300 text-xs">—</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-right font-semibold text-gray-700">
-                                                                {item.price !== undefined
-                                                                    ? `${item.price.toLocaleString()}đ`
-                                                                    : <span className="text-gray-300">—</span>
-                                                                }
-                                                            </td>
-                                                        </tr>
-                                                    )
-                                                })
-                                            )}
-                                        </tbody>
-                                    </table>
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    {item.imageUrl ? (
+                                                                        <img src={item.imageUrl} alt={item.name} className="w-10 h-10 object-cover rounded-md" />
+                                                                    ) : (
+                                                                        <div className="w-10 h-10 bg-gray-200 border border-gray-300 rounded-md flex items-center justify-center">
+                                                                            <span className="text-gray-500 text-xs">IMG</span>
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    {item.categoryName ? (
+                                                                        <span className="bg-gray-100 text-gray-600 px-2.5 py-0.5 rounded-full text-xs font-medium">
+                                                                            {item.categoryName}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-gray-300 text-xs">—</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right font-semibold text-gray-700">
+                                                                    {item.price !== undefined
+                                                                        ? `${item.price.toLocaleString()}đ`
+                                                                        : <span className="text-gray-300">—</span>
+                                                                    }
+                                                                </td>
+                                                            </tr>
+                                                        )
+                                                    })
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 )}
                             </div>
 

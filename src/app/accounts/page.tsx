@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, startTransition } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import { useAuth } from '@/lib/auth'
 import api from '@/lib/api'
-import { useRoles } from '@/hooks/useApi'
+import { useBranches, useRoles } from '@/hooks/useApi'
 import {
   UserRound, UserPlus, Trash2, Shield, ChefHat,
   User, CreditCard, Users, Eye, EyeOff, Building2,
@@ -13,6 +13,7 @@ import {
 import { SelectBox } from '@/components/SelectBox'
 import { useToast } from '@/hooks/useToast'
 import { ConfirmModal } from '@/components/ConfirmModal'
+import { BranchSelector } from '@/components/BranchSelector'
 
 interface Account {
   id: string
@@ -41,9 +42,10 @@ export default function AccountsPage() {
   const { user } = useAuth()
   const restaurantId = user?.restaurantId || ''
   const branchId = user?.branchId || ''
+  const isOwner = user?.isOwner
 
   const [accounts, setAccounts] = useState<Account[]>([])
-  const [branches, setBranches] = useState<Branch[]>([])
+  const { data: branches = [] } = useBranches(restaurantId)
   const { data: roles = [] } = useRoles(restaurantId)
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -54,26 +56,22 @@ export default function AccountsPage() {
   const [search, setSearch] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null)
   const toast = useToast()
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')
 
-  const isOwner = user?.isOwner
 
   const customRole = roles.find((r: any) => r.id === user?.roleId)
   const isManager = isOwner || (customRole?.permissions || []).includes('ACCOUNTS')
-
-  const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')
-  const activeBranchId = isOwner ? selectedBranchId : (user?.branchId || '')
 
   const fetchData = useCallback(async () => {
     if (!restaurantId) return
     setLoading(true)
     try {
-      const branchParam = activeBranchId ? `&branchId=${activeBranchId}` : ''
+      const branchParam = selectedBranchId ? `&branchId=${selectedBranchId}` : ''
       const [accRes, brRes] = await Promise.all([
         api.get(`/api/auth/users?restaurantId=${restaurantId}${branchParam}`),
         api.get(`/api/branches/restaurant/${restaurantId}`)
       ])
       setAccounts(accRes.data)
-      setBranches(brRes.data)
 
       if (brRes.data) {
         setForm(p => ({ ...p, branchId: p.branchId || brRes.data[0]?.id || '' }))
@@ -83,19 +81,12 @@ export default function AccountsPage() {
     } finally {
       setLoading(false)
     }
-  }, [restaurantId])
+  }, [restaurantId, selectedBranchId])
 
   useEffect(() => {
     setMounted(true)
     fetchData()
-  }, [fetchData, activeBranchId])
-
-  // Tự động chọn chi nhánh đầu tiên cho Owner nếu chưa chọn
-  useEffect(() => {
-    if (isOwner && !selectedBranchId && branches.length > 0) {
-      setSelectedBranchId(branches[0].id)
-    }
-  }, [isOwner, selectedBranchId, branches])
+  }, [fetchData, branchId])
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -123,7 +114,7 @@ export default function AccountsPage() {
 
       setShowCreate(false)
       setEditingAccount(null)
-      setForm({ ...defaultForm, branchId: activeBranchId })
+      setForm({ ...defaultForm, branchId })
       fetchData()
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Lỗi khi lưu tài khoản')
@@ -152,6 +143,16 @@ export default function AccountsPage() {
 
   const getBranchName = (id: string) => branches.find(b => b.id === id)?.name || 'Chưa xác định'
 
+  // Nếu là owner và chưa có chi nhánh nào được chọn, tự động chọn chi nhánh đầu tiên
+  useEffect(() => {
+    if (!mounted) return
+    if (isOwner && !selectedBranchId && branches.length > 0) {
+      startTransition(() => {
+        setSelectedBranchId(prev => prev || branches[0].id)
+      })
+    }
+  }, [isOwner, selectedBranchId, branches, mounted])
+
   if (!mounted) return null
 
   return (
@@ -170,21 +171,17 @@ export default function AccountsPage() {
           </div>
           {isManager && (
             <div className="flex items-center gap-3">
-              {isOwner && (
-                <div className="w-64">
-                  <SelectBox
-                    options={[{ id: '', name: 'Tất cả chi nhánh' }, ...branches]}
-                    optionLabel='name'
-                    optionValue='id'
-                    onChange={val => setSelectedBranchId(val)}
-                    value={selectedBranchId}
-                  />
-                </div>
-              )}
+              {
+                isOwner && (
+                  <div className='w-52'>
+                    <SelectBox value={selectedBranchId} options={branches} optionLabel='name' optionValue='id' onChange={(val) => setSelectedBranchId(val)} />
+                  </div>
+                )
+              }
               <button
                 onClick={() => {
                   setEditingAccount(null)
-                  setForm({ ...defaultForm, branchId: activeBranchId })
+                  setForm({ ...defaultForm, branchId })
                   setShowCreate(true)
                 }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95 whitespace-nowrap"
@@ -238,7 +235,7 @@ export default function AccountsPage() {
             <div className="p-16 text-center opacity-30">
               <Users size={64} className="mx-auto mb-4" />
               <p className="font-black text-lg">Chưa có tài khoản nào</p>
-              <p className="text-sm">Bấm "Thêm tài khoản" để bắt đầu</p>
+              <p className="text-sm">Bấm {"Thêm tài khoản"} để bắt đầu</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -407,7 +404,6 @@ export default function AccountsPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Chi nhánh *</label>
-
                   <SelectBox options={branches} optionLabel='name' optionValue='id' onChange={val => setForm(p => ({ ...p, branchId: val }))} value={form.branchId} />
                 </div>
               </div>

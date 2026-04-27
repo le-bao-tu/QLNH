@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, startTransition } from 'react'
+import { useEffect, useState } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import { useTables, useUpdateTableStatus, useBranches } from '@/hooks/useApi'
 import { Plus, Edit2, Trash2, RefreshCw, Grid3x3, QrCode } from 'lucide-react'
@@ -10,6 +10,10 @@ import { useAuth } from '@/lib/auth'
 import { SelectBox } from '@/components/SelectBox'
 import { useToast } from '@/hooks/useToast'
 import { ConfirmModal } from '@/components/ConfirmModal'
+import { BranchSelector } from '@/components/BranchSelector'
+import { useFormik } from 'formik'
+import * as Yup from 'yup'
+import { X } from 'lucide-react'
 
 interface Table {
   id: string
@@ -40,93 +44,90 @@ export default function TablesPage() {
   const isOwner = user?.isOwner
   const restaurantId = user?.restaurantId || ''
   const toast = useToast()
-
-  // Owner có thể chọn chi nhánh, Manager lấy từ tài khoản
   const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')
+
+  const workingId = isOwner && !selectedBranchId ? restaurantId : selectedBranchId
+  const mode = isOwner && !selectedBranchId ? 'restaurant' : 'branch'
+
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, id: string | null }>({ isOpen: false, id: null })
-  const activeBranchId = isOwner ? selectedBranchId : (user?.branchId || '')
+  const { data: branches = [] } = useBranches(restaurantId)
 
-  const { data: branches = [], refetch: refetchBranches } = useBranches(isOwner ? restaurantId : '')
-
-  // Nếu là owner và chưa có chi nhánh nào được chọn, tự động chọn chi nhánh đầu tiên
-  useEffect(() => {
-    if (isOwner && !selectedBranchId && branches.length > 0) {
-      startTransition(() => {
-        setSelectedBranchId(prev => prev || branches[0].id)
-      })
-    }
-  }, [isOwner, selectedBranchId, branches])
-
-  const { data: tables = [], refetch } = useTables(activeBranchId)
+  const { data: tables = [], refetch } = useTables(workingId, mode)
   const updateStatus = useUpdateTableStatus()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [qrModal, setQrModal] = useState<Table | null>(null)
   const [editTable, setEditTable] = useState<Table | null>(null)
-  const [form, setForm] = useState({ tableNumber: '', capacity: '4', note: '', branchId: '' })
   const [loading, setLoading] = useState(false)
-  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'occupied' | 'reserved' | 'cleaning'>('all')
+  const filteredTables = filterStatus === 'all' ? tables : tables.filter((t: Table) => t.status === filterStatus)
+  const validationSchema = Yup.object({
+    tableNumber: Yup.number().typeError('Số bàn phải là số').required('Số bàn là bắt buộc').positive('Số bàn phải lớn hơn 0'),
+    capacity: Yup.number().typeError('Sức chứa phải là số').required('Sức chứa là bắt buộc').positive('Sức chứa phải lớn hơn 0'),
+    branchId: isOwner ? Yup.string().required('Vui lòng chọn chi nhánh') : Yup.string(),
+  });
 
-  const filteredTables = filterStatus === 'all' ? tables :
-    tables.filter((t: Table) => t.status === filterStatus)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const targetBranchId = isOwner ? form.branchId || selectedBranchId : (user?.branchId || '')
-
-    if (!targetBranchId) {
-      toast.error('Vui lòng chọn chi nhánh!')
-      return
+  useEffect(() => {
+    if (isOwner && branches.length > 0 && !selectedBranchId) {
+      setSelectedBranchId(branches[0].id)
     }
+  }, [isOwner, branches, selectedBranchId])
 
-    const tableNo = parseInt(form.tableNumber)
-    const cap = parseInt(form.capacity)
+  const formik = useFormik({
+    initialValues: { tableNumber: '', capacity: '4', note: '', branchId: '' },
+    validationSchema,
+    onSubmit: async (values) => {
+      const targetBranchId = isOwner ? values.branchId || selectedBranchId : (user?.branchId || '');
 
-    if (isNaN(tableNo) || isNaN(cap)) {
-      toast.error('Số bàn và sức chứa phải là số hợp lệ!')
-      return
-    }
-
-    setLoading(true)
-    try {
-      if (editTable) {
-        await api.put(`/ api / tables / ${editTable.id} `, {
-          tableNumber: tableNo,
-          capacity: cap,
-          note: form.note
-        })
-        toast.success('Đã cập nhật bàn thành công')
-      } else {
-        await api.post('/api/tables', {
+      setLoading(true);
+      try {
+        const payload = {
           branchId: targetBranchId,
-          tableNumber: tableNo,
-          capacity: cap,
-          note: form.note
-        })
-        toast.success('Đã tạo bàn thành công')
+          tableNumber: parseInt(values.tableNumber),
+          capacity: parseInt(values.capacity),
+          note: values.note,
+        };
+
+        if (editTable) {
+          await api.put(`/api/tables/${editTable.id}`, {
+            tableNumber: payload.tableNumber,
+            capacity: payload.capacity,
+            note: payload.note
+          });
+          toast.success('Đã cập nhật bàn thành công');
+        } else {
+          await api.post('/api/tables', payload);
+          toast.success('Đã tạo bàn thành công');
+        }
+        queryClient.invalidateQueries({ queryKey: ['tables'] });
+        setShowForm(false);
+        setEditTable(null);
+        formik.resetForm();
+      } catch (err: any) {
+        console.error(err);
+        const msg = err.response?.data?.message || 'Có lỗi xảy ra khi lưu thông tin bàn';
+        toast.error(msg);
+      } finally {
+        setLoading(false);
       }
-      queryClient.invalidateQueries({ queryKey: ['tables'] })
-      setShowForm(false)
-      setEditTable(null)
-      setForm({ tableNumber: '', capacity: '4', note: '', branchId: '' })
-    } catch (err: any) {
-      console.error(err)
-      const msg = err.response?.data?.message || 'Có lỗi xảy ra khi lưu thông tin bàn'
-      toast.error(msg)
     }
-    setLoading(false)
-  }
+  });
 
   const handleEdit = (table: Table) => {
-    setEditTable(table)
-    setForm({ tableNumber: table.tableNumber.toString(), capacity: table.capacity.toString(), note: table.note || '', branchId: '' })
-    setShowForm(true)
+    setEditTable(table);
+    formik.setValues({
+      tableNumber: table.tableNumber.toString(),
+      capacity: table.capacity.toString(),
+      note: table.note || '',
+      branchId: table.branchId || ''
+    });
+    setShowForm(true);
   }
 
   const deleteTable = async () => {
     if (!confirmDialog.id) return
     try {
-      await api.delete(`/ api / tables / ${confirmDialog.id} `)
+      await api.delete(`/api/tables/${confirmDialog.id}`)
       toast.success('Đã xoá bàn thành công')
       queryClient.invalidateQueries({ queryKey: ['tables'] })
     } catch (err) {
@@ -146,6 +147,8 @@ export default function TablesPage() {
 
   const getQRUrl = (table: Table) => {
     if (typeof window === 'undefined') return ''
+    console.log(`${window.location.origin}/order/${table.id}`);
+
     return `${window.location.origin}/order/${table.id}`
   }
 
@@ -159,18 +162,21 @@ export default function TablesPage() {
               <Grid3x3 size={22} color="#2563eb" />
               Quản lý bàn
             </h1>
-            <p style={{ color: '#64748b', fontSize: 13 }}>{tables.length} bàn {activeBranchId ? `· Chi nhánh đang xem` : ''}</p>
+            <p style={{ color: '#64748b', fontSize: 13 }}>{tables.length} bàn {selectedBranchId ? `· ${branches.find((b: any) => b.id === selectedBranchId)?.name || ''}` : '· Tất cả chi nhánh'}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {/* Owner: chọn chi nhánh để xem bàn */}
-            {isOwner && (
-              <SelectBox options={branches} onChange={id => setSelectedBranchId(id)} value={selectedBranchId} optionLabel='name' optionValue='id' />
-            )}
+            {
+              isOwner && (
+                <div className='w-52'>
+                  <SelectBox value={selectedBranchId} options={branches} optionLabel='name' optionValue='id' onChange={(val) => setSelectedBranchId(val)} />
+                </div>
+              )
+            }
             <button className="btn btn-secondary flex-shrink-0" onClick={() => refetch()}>
               <RefreshCw size={15} />
               Làm mới
             </button>
-            <button className="btn btn-primary flex-shrink-0" onClick={() => { setShowForm(true); setEditTable(null); setForm({ tableNumber: '', capacity: '4', note: '', branchId: '' }) }} id="add-table-btn">
+            <button className="btn btn-primary flex-shrink-0" onClick={() => { setShowForm(true); setEditTable(null); formik.resetForm(); }} id="add-table-btn">
               <Plus size={15} />
               Thêm bàn
             </button>
@@ -267,31 +273,65 @@ export default function TablesPage() {
               <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>
                 {editTable ? 'Sửa thông tin bàn' : 'Thêm bàn mới'}
               </h2>
-              <form onSubmit={handleSubmit}>
-                {/* Owner: ch\u1ecdn chi nh\u00e1nh khi t\u1ea1o b\u00e0n m\u1edbi */}
+              <form onSubmit={formik.handleSubmit}>
+                {/* Owner: chọn chi nhánh khi tạo bàn mới */}
                 {isOwner && !editTable && (
                   <div style={{ marginBottom: 14 }}>
                     <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Chi nhánh *</label>
-                    <SelectBox options={branches} onChange={val => setForm(p => ({ ...p, branchId: val }))} value={form.branchId} optionLabel='name' optionValue='id' />
+                    <SelectBox
+                      options={branches}
+                      onChange={val => formik.setFieldValue('branchId', val)}
+                      value={formik.values.branchId}
+                      optionLabel='name'
+                      optionValue='id'
+                    />
+                    {formik.touched.branchId && formik.errors.branchId && (
+                      <p className="text-red-500 text-xs mt-1">{formik.errors.branchId}</p>
+                    )}
                   </div>
                 )}
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Số bàn *</label>
-                  <input className="input" type="number" required value={form.tableNumber}
-                    onChange={e => setForm(p => ({ ...p, tableNumber: e.target.value }))} placeholder="VD: 1" />
+                  <input
+                    name="tableNumber"
+                    className={`input ${formik.touched.tableNumber && formik.errors.tableNumber ? 'border-red-500' : ''}`}
+                    type="number"
+                    value={formik.values.tableNumber}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    placeholder="VD: 1"
+                  />
+                  {formik.touched.tableNumber && formik.errors.tableNumber && (
+                    <p className="text-red-500 text-xs mt-1">{formik.errors.tableNumber}</p>
+                  )}
                 </div>
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Số chỗ ngồi *</label>
-                  <input className="input" type="number" required value={form.capacity}
-                    onChange={e => setForm(p => ({ ...p, capacity: e.target.value }))} />
+                  <input
+                    name="capacity"
+                    className={`input ${formik.touched.capacity && formik.errors.capacity ? 'border-red-500' : ''}`}
+                    type="number"
+                    value={formik.values.capacity}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                  />
+                  {formik.touched.capacity && formik.errors.capacity && (
+                    <p className="text-red-500 text-xs mt-1">{formik.errors.capacity}</p>
+                  )}
                 </div>
                 <div style={{ marginBottom: 20 }}>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Ghi chú</label>
-                  <input className="input" value={form.note}
-                    onChange={e => setForm(p => ({ ...p, note: e.target.value }))} placeholder="VD: Gần cửa sổ" />
+                  <input
+                    name="note"
+                    className="input"
+                    value={formik.values.note}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    placeholder="VD: Gần cửa sổ"
+                  />
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowForm(false); setEditTable(null) }}>
+                  <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowForm(false); setEditTable(null); formik.resetForm(); }}>
                     Hủy
                   </button>
                   <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={loading} id="save-table-btn">
@@ -441,22 +481,4 @@ export default function TablesPage() {
   )
 }
 
-function X(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
-  )
-}
+

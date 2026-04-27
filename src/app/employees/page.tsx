@@ -4,11 +4,15 @@ import { useState, useEffect, useMemo } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { useRoles } from '@/hooks/useApi'
-import { ChevronLeft, ChevronRight, Copy, LayoutGrid, CalendarDays, Pencil, Trash2, Plus, Clock, Shuffle, AlertCircle, X } from 'lucide-react'
+import { useRoles, useEmployees } from '@/hooks/useApi'
+import { ChevronLeft, ChevronRight, Copy, LayoutGrid, CalendarDays, Pencil, Trash2, Plus, Clock, Shuffle, AlertCircle, X, Search } from 'lucide-react'
 import { SelectBox } from '@/components/SelectBox'
 import { useToast } from '@/hooks/useToast'
 import { ConfirmModal } from '@/components/ConfirmModal'
+import { Pagination } from '@/components/Pagination'
+import { usePagination } from '@/hooks/usePagination'
+import { useFormik } from 'formik'
+import * as Yup from 'yup'
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -134,15 +138,21 @@ export default function EmployeesPage() {
   const branchId = user?.branchId || ''
   const restaurantId = user?.restaurantId || ''
   const toast = useToast()
-  
+
   const { data: dbRoles = [] } = useRoles(restaurantId)
 
   const [tab, setTab] = useState<PageTab>('employees')
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [loadingEmps, setLoadingEmps] = useState(true)
+
+  const { pageIndex, pageSize, search, setSearch, setPage, paginationParams } = usePagination(20)
+  const { data: employeeData, isLoading: loadingEmps, refetch: loadEmployees } = useEmployees(branchId, paginationParams)
+
+  const employees = employeeData?.items || (Array.isArray(employeeData) ? employeeData : [])
+  const totalCount = employeeData?.totalCount || employees.length
+  const totalPages = employeeData?.totalPages || 1
+
   const [showAddEmp, setShowAddEmp] = useState(false)
   const [empForm, setEmpForm] = useState({ fullName: '', phone: '', email: '', role: 'waiter', hourlyRate: 0 })
-  const [confirmDialog, setConfirmDialog] = useState<{isOpen: boolean, empId: string | null, tplId: string | null}>({isOpen: false, empId: null, tplId: null})
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, empId: string | null, tplId: string | null }>({ isOpen: false, empId: null, tplId: null })
 
   const [calView, setCalView] = useState<CalView>('week')
   const [cursor, setCursor] = useState(new Date())
@@ -152,30 +162,39 @@ export default function EmployeesPage() {
   const [templates, setTemplates] = useState<ShiftTemplate[]>(DEFAULT_TEMPLATES)
   const [tplModal, setTplModal] = useState<{ open: boolean; editing: ShiftTemplate | null }>({ open: false, editing: null })
 
-  // Load employees from API
-  const loadEmployees = () => {
-    if (!branchId) return
-    api.get(`/api/employees/branch/${branchId}`)
-      .then(r => setEmployees(r.data))
-      .catch(() => setEmployees(MOCK_EMPLOYEES))
-      .finally(() => setLoadingEmps(false))
-  }
 
-  useEffect(() => {
-    loadEmployees()
-  }, [branchId])
+  const validationSchema = Yup.object({
+    fullName: Yup.string()
+      .required('Họ tên là bắt buộc')
+      .max(100, 'Tối đa 100 ký tự'),
+    phone: Yup.string()
+      .matches(/^\+?[0-9]{10,12}$/, 'Số điện thoại không hợp lệ (10-12 số)')
+      .nullable(),
+    email: Yup.string()
+      .email('Email không hợp lệ')
+      .nullable(),
+    role: Yup.string().required('Vui lòng chọn vai trò'),
+    hourlyRate: Yup.number()
+      .min(0, 'Lương không được âm')
+      .required('Mức lương là bắt buộc'),
+  });
 
-  const createEmployee = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!branchId) return
-    let err = false
-    try { await api.post('/api/employees', { branchId: branchId, ...empForm }) } catch { err = true }
-    setShowAddEmp(false)
-    setEmpForm({ fullName: '', phone: '', email: '', role: 'waiter', hourlyRate: 0 })
-    if (err) toast.error('Lỗi khi lưu nhân viên')
-    else toast.success('Thêm nhân viên thành công')
-    loadEmployees()
-  }
+  const formik = useFormik({
+    initialValues: { fullName: '', phone: '', email: '', role: 'waiter', hourlyRate: 0 },
+    validationSchema,
+    onSubmit: async (values) => {
+      if (!branchId) return;
+      try {
+        await api.post('/api/employees', { branchId: branchId, ...values });
+        toast.success('Thêm nhân viên thành công');
+        setShowAddEmp(false);
+        formik.resetForm();
+        loadEmployees();
+      } catch (err) {
+        toast.error('Lỗi khi lưu nhân viên');
+      }
+    },
+  });
 
   const handleDelete = async () => {
     if (!confirmDialog.empId) return
@@ -187,12 +206,14 @@ export default function EmployeesPage() {
       console.error(err)
       toast.error('Lỗi khi xóa nhân viên')
     } finally {
-      setConfirmDialog({isOpen: false, empId: null, tplId: null})
+      setConfirmDialog({ isOpen: false, empId: null, tplId: null })
     }
   }
 
-  const displayEmployees = useMemo(() =>
-    employees.length > 0 ? employees : MOCK_EMPLOYEES, [employees])
+  const displayEmployees = useMemo(() => {
+    if (loadingEmps) return []
+    return employees.length > 0 ? employees : (search ? [] : MOCK_EMPLOYEES)
+  }, [employees, loadingEmps, search])
 
   // ─── Calendar navigation ───────────────────────────────────────────────────
   const navigate = (dir: -1 | 1) => setCursor(prev =>
@@ -239,15 +260,15 @@ export default function EmployeesPage() {
   // ─── Template CRUD ─────────────────────────────────────────────────────────
   const openAddTpl = () => setTplModal({ open: true, editing: null })
   const openEditTpl = (t: ShiftTemplate) => setTplModal({ open: true, editing: t })
-  
+
   const executeDeleteTpl = () => {
     if (!confirmDialog.tplId) return
     setTemplates(p => p.filter(t => t.id !== confirmDialog.tplId))
     toast.success('Đã xóa mẫu ca')
-    setConfirmDialog({isOpen: false, empId: null, tplId: null})
+    setConfirmDialog({ isOpen: false, empId: null, tplId: null })
   }
 
-  const deleteTpl = (id: string) => { 
+  const deleteTpl = (id: string) => {
     setConfirmDialog({ isOpen: true, empId: null, tplId: id })
   }
 
@@ -283,19 +304,34 @@ export default function EmployeesPage() {
           )}
         </div>
 
-        {/* ── Tabs ────────────────────────────────────────────────────────── */}
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 w-fit">
-          {([
-            { key: 'employees', label: '👥 Nhân viên' },
-            { key: 'schedule', label: '📅 Lịch phân công' },
-            { key: 'templates', label: '🕐 Mẫu ca làm việc' },
-          ] as { key: PageTab; label: string }[]).map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${tab === t.key ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                }`}>
-              {t.label}
-            </button>
-          ))}
+        {/* ── Tabs & Search ─────────────────────────────────────────────────── */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+            {([
+              { key: 'employees', label: '👥 Nhân viên' },
+              { key: 'schedule', label: '📅 Lịch phân công' },
+              { key: 'templates', label: '🕐 Mẫu ca làm việc' },
+            ] as { key: PageTab; label: string }[]).map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${tab === t.key ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                  }`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'employees' && (
+            <div className="relative w-full md:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <input
+                type="text"
+                placeholder="Tìm nhân viên..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
+              />
+            </div>
+          )}
         </div>
 
         {/* ════════════════════════════════════════════════════════════════════
@@ -307,33 +343,44 @@ export default function EmployeesPage() {
               <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {displayEmployees.map(emp => {
-                const customRole = dbRoles.find((r: any) => r.id === emp.role)
-                const cfg = customRole 
-                  ? { label: customRole.name, badge: 'bg-gray-100 text-gray-700' }
-                  : (ROLE_CFG[emp.role] || { label: emp.role, badge: 'bg-gray-100 text-gray-600' })
-                return (
-                  <div key={emp.id} className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-all">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-bold text-base flex-shrink-0">
-                        {emp.fullName.charAt(0)}
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {displayEmployees.map(emp => {
+                  const customRole = dbRoles.find((r: any) => r.id === emp.role)
+                  const cfg = customRole
+                    ? { label: customRole.name, badge: 'bg-gray-100 text-gray-700' }
+                    : (ROLE_CFG[emp.role] || { label: emp.role, badge: 'bg-gray-100 text-gray-600' })
+                  return (
+                    <div key={emp.id} className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-all">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-bold text-base flex-shrink-0">
+                          {emp.fullName.charAt(0)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900 truncate text-sm">{emp.fullName}</p>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 truncate text-sm">{emp.fullName}</p>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
+                      <div className="space-y-1 text-xs text-gray-500">
+                        {emp.phone && <div className="flex gap-2"><span>📱</span>{emp.phone}</div>}
+                        {emp.email && <div className="flex gap-2"><span>✉️</span><span className="truncate">{emp.email}</span></div>}
+                        <div className="flex gap-2"><span>💰</span>{emp.hourlyRate.toLocaleString()}đ/giờ</div>
                       </div>
+                      <button onClick={() => setConfirmDialog({ isOpen: true, empId: emp.id, tplId: null })} className="mt-3 text-red-500 text-xs hover:underline">Xóa nhân viên</button>
                     </div>
-                    <div className="space-y-1 text-xs text-gray-500">
-                      {emp.phone && <div className="flex gap-2"><span>📱</span>{emp.phone}</div>}
-                      {emp.email && <div className="flex gap-2"><span>✉️</span><span className="truncate">{emp.email}</span></div>}
-                      <div className="flex gap-2"><span>💰</span>{emp.hourlyRate.toLocaleString()}đ/giờ</div>
-                    </div>
-                    <button onClick={() => setConfirmDialog({isOpen: true, empId: emp.id, tplId: null})} className="mt-3 text-red-500 text-xs hover:underline">Xóa nhân viên</button>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+              <div className="mt-6">
+                <Pagination
+                  pageIndex={pageIndex}
+                  pageSize={pageSize}
+                  totalCount={totalCount}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                />
+              </div>
+            </>
           )
         )}
 
@@ -572,7 +619,7 @@ export default function EmployeesPage() {
           message="Bạn có chắc chắn muốn xóa không? Hành động này không thể hoàn tác."
           type="danger"
           onConfirm={confirmDialog.empId ? handleDelete : executeDeleteTpl}
-          onCancel={() => setConfirmDialog({isOpen: false, empId: null, tplId: null})}
+          onCancel={() => setConfirmDialog({ isOpen: false, empId: null, tplId: null })}
         />
       </div>
 
@@ -589,44 +636,86 @@ export default function EmployeesPage() {
               </div>
               <button onClick={() => setShowAddEmp(false)} className="modal-close"><X size={18} /></button>
             </div>
-            <form onSubmit={createEmployee}>
+            <form onSubmit={formik.handleSubmit}>
               <div className="modal-body">
                 <div className="form-field">
                   <label className="form-label">Họ tên <span className="form-req">*</span></label>
-                  <input required value={empForm.fullName} onChange={e => setEmpForm({ ...empForm, fullName: e.target.value })}
-                    className="form-input" placeholder="Nguyễn Văn A" />
+                  <input
+                    name="fullName"
+                    value={formik.values.fullName}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    className={`form-input ${formik.touched.fullName && formik.errors.fullName ? 'border-red-500' : ''}`}
+                    placeholder="Nguyễn Văn A"
+                  />
+                  {formik.touched.fullName && formik.errors.fullName && (
+                    <p className="text-red-500 text-xs mt-1">{formik.errors.fullName}</p>
+                  )}
                 </div>
                 <div className="form-row-2">
                   <div className="form-field">
                     <label className="form-label">Điện thoại</label>
-                    <input value={empForm.phone} onChange={e => setEmpForm({ ...empForm, phone: e.target.value })}
-                      className="form-input" placeholder="0900 000 000" />
+                    <input
+                      name="phone"
+                      value={formik.values.phone}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      className={`form-input ${formik.touched.phone && formik.errors.phone ? 'border-red-500' : ''}`}
+                      placeholder="0900 000 000"
+                    />
+                    {formik.touched.phone && formik.errors.phone && (
+                      <p className="text-red-500 text-xs mt-1">{formik.errors.phone}</p>
+                    )}
                   </div>
                   <div className="form-field">
                     <label className="form-label">Vai trò</label>
-                    <SelectBox 
-                       options={dbRoles.map((r: any) => ({ value: r.id, label: r.name }))} 
-                       optionLabel='label' 
-                       optionValue='value' 
-                       onChange={val => setEmpForm(p => ({ ...p, role: val }))} 
-                       value={empForm.role} 
-                     />
+                    <SelectBox
+                      options={dbRoles.map((r: any) => ({ value: r.id, label: r.name }))}
+                      optionLabel='label'
+                      optionValue='value'
+                      onChange={val => formik.setFieldValue('role', val)}
+                      value={formik.values.role}
+                    />
+                    {formik.touched.role && formik.errors.role && (
+                      <p className="text-red-500 text-xs mt-1">{formik.errors.role}</p>
+                    )}
                   </div>
                 </div>
                 <div className="form-field">
                   <label className="form-label">Email</label>
-                  <input type="email" value={empForm.email} onChange={e => setEmpForm({ ...empForm, email: e.target.value })}
-                    className="form-input" placeholder="email@example.com" />
+                  <input
+                    name="email"
+                    type="email"
+                    value={formik.values.email}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    className={`form-input ${formik.touched.email && formik.errors.email ? 'border-red-500' : ''}`}
+                    placeholder="email@example.com"
+                  />
+                  {formik.touched.email && formik.errors.email && (
+                    <p className="text-red-500 text-xs mt-1">{formik.errors.email}</p>
+                  )}
                 </div>
                 <div className="form-field">
                   <label className="form-label">Lương giờ (đ)</label>
-                  <input type="number" min={0} value={empForm.hourlyRate} onChange={e => setEmpForm({ ...empForm, hourlyRate: +e.target.value })}
-                    className="form-input" />
+                  <input
+                    name="hourlyRate"
+                    type="number"
+                    value={formik.values.hourlyRate}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    className={`form-input ${formik.touched.hourlyRate && formik.errors.hourlyRate ? 'border-red-500' : ''}`}
+                  />
+                  {formik.touched.hourlyRate && formik.errors.hourlyRate && (
+                    <p className="text-red-500 text-xs mt-1">{formik.errors.hourlyRate}</p>
+                  )}
                 </div>
               </div>
               <div className="modal-footer">
                 <button type="button" onClick={() => setShowAddEmp(false)} className="modal-btn-cancel">Hủy</button>
-                <button type="submit" className="modal-btn-save">✓ Thêm nhân viên</button>
+                <button type="submit" disabled={formik.isSubmitting} className="modal-btn-save">
+                  {formik.isSubmitting ? 'Đang lưu...' : '✓ Thêm nhân viên'}
+                </button>
               </div>
             </form>
           </div>

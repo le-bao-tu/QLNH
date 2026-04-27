@@ -20,8 +20,9 @@ import {
   Shield,
 } from 'lucide-react'
 import { ROLE_LABEL, ROLE_MAP } from '@/common/constant'
-import { useRestaurant, useRoles } from '@/hooks/useApi'
+import { useRestaurant, useRoles, useBranches } from '@/hooks/useApi'
 import { useToast } from '@/hooks/useToast'
+import { SelectBox } from './SelectBox'
 
 // Menu items với phân quyền: roles = [] nghĩa là tất cả đều thấy
 const navItems = [
@@ -39,7 +40,7 @@ const navItems = [
   // { href: '/inventory', label: 'Kho hàng', icon: Package, perm: 'INVENTORY' },
 
   { href: '/accounts', label: 'Tài khoản', icon: KeyRound, perm: 'ACCOUNTS' },
-  { href: '/roles', label: 'Phân quyền', icon: Shield, perm: 'ACCOUNTS' },
+  { href: '/roles', label: 'Phân quyền', icon: Shield, perm: 'DECENTRALIZATION' },
   { href: '/restaurants', label: 'Nhà hàng', icon: Building2, perm: 'RESTAURANTS' },
   { href: '/branches', label: 'Chi nhánh', icon: GitBranch, perm: 'BRANCHES' },
   { href: '/audit', label: 'Audit Log', icon: History, perm: 'AUDIT' },
@@ -47,10 +48,11 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const { user, logout } = useAuth()
+  const { user, logout, selectedBranchId, setSelectedBranchId } = useAuth()
   const { success, error, info } = useToast()
 
   const { data: restaurant } = useRestaurant(user?.restaurantId as string)
+  const { data: branches = [] } = useBranches(user?.restaurantId as string)
   const { data: customRoles = [] } = useRoles(user?.restaurantId as string)
 
   const visibleItems = navItems.filter(item => {
