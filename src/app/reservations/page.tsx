@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { useBranches, useTables } from '@/hooks/useApi'
+import { useBranches, useTables, useReservations } from '@/hooks/useApi'
+import { usePagination } from '@/hooks/usePagination'
+import { Pagination } from '@/components/Pagination'
 import {
   CalendarDays,
   Plus,
@@ -22,6 +24,8 @@ import {
   Calendar,
   X
 } from 'lucide-react'
+import { useFormik } from 'formik'
+import * as Yup from 'yup'
 import { SelectBox } from '@/components/SelectBox'
 import { useToast } from '@/hooks/useToast'
 import { ConfirmModal } from '@/components/ConfirmModal'
@@ -60,6 +64,8 @@ export default function ReservationsPage() {
   const activeBranchId = isOwner ? selectedBranchId : (user?.branchId || '')
 
   const { data: branches = [] } = useBranches(isOwner ? restaurantId : '')
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [showModal, setShowModal] = useState(false)
 
 
   // T\u1ef1 đ\u1ed9ng ch\u1ecdn chi nh\u00e1nh đầu ti\u00ean cho Owner n\u1ebfu chưa ch\u1ecdn
@@ -69,12 +75,54 @@ export default function ReservationsPage() {
     }
   }, [isOwner, selectedBranchId, branches])
 
-  const [branchId, setBranchId] = useState(user?.branchId || '')
-  const [reservations, setReservations] = useState<Reservation[]>([])
-  const [loading, setLoading] = useState(false)
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0])
-  const [showModal, setShowModal] = useState(false)
-  const [form, setForm] = useState({ guestName: '', guestPhone: '', partySize: 2, reservedAt: '', note: '', branchId: '' })
+  const { pageIndex, pageSize, search, setSearch, setPage, paginationParams } = usePagination(20)
+  const { data: resData, isLoading: loading, refetch: load } = useReservations(activeBranchId, { ...paginationParams, date: selectedDate })
+  const reservations = resData?.items || (Array.isArray(resData) ? resData : [])
+  const totalCount = resData?.totalCount || 0
+  const totalPages = resData?.totalPages || 1
+
+  const validationSchema = Yup.object({
+    guestName: Yup.string().required('Tên khách hàng là bắt buộc').max(200, 'Tên không quá 200 ký tự'),
+    guestPhone: Yup.string().matches(/^[0-9+]+$/, 'Số điện thoại không hợp lệ').min(10, 'Ít nhất 10 số'),
+    partySize: Yup.number().typeError('Số khách phải là số').required('Số khách là bắt buộc').positive('Phải lớn hơn 0').integer('Phải là số nguyên'),
+    reservedAt: Yup.date().required('Thời gian đến là bắt buộc').min(new Date(), 'Thời gian đặt phải ở tương lai'),
+    branchId: isOwner ? Yup.string().required('Vui lòng chọn chi nhánh') : Yup.string(),
+  });
+
+  const formik = useFormik({
+    initialValues: { guestName: '', guestPhone: '', partySize: 2, reservedAt: '', note: '', branchId: '' },
+    validationSchema,
+    onSubmit: async (values) => {
+      const targetBranchId = isOwner ? values.branchId || selectedBranchId : (user?.branchId || '');
+      if (!targetBranchId || targetBranchId === 'all') {
+        toast.error('Vui lòng chọn chi nhánh!');
+        return;
+      }
+
+      try {
+        await api.post('/api/reservations', {
+          branchId: targetBranchId,
+          guestName: values.guestName,
+          guestPhone: values.guestPhone,
+          partySize: values.partySize,
+          reservedAt: values.reservedAt,
+          note: values.note,
+        });
+        setShowModal(false);
+        formik.resetForm();
+        toast.success('Đã tạo đặt bàn thành công');
+        load();
+      } catch (err: any) {
+        console.error(err);
+        toast.error(err.response?.data?.message || 'Có lỗi xảy ra khi tạo đặt bàn');
+      }
+    }
+  });
+
+  const handleOpenCreate = () => {
+    formik.resetForm();
+    setShowModal(true);
+  }
 
   const { data: tables = [] } = useTables(activeBranchId || '')
   const [seatingReservationId, setSeatingReservationId] = useState<string | null>(null)
@@ -82,24 +130,7 @@ export default function ReservationsPage() {
   
   const toast = useToast()
 
-  const load = async () => {
-    if (!activeBranchId || activeBranchId === 'all') {
-      setReservations([])
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    try {
-      const { data } = await api.get(`/api/reservations/branch/${activeBranchId}`, { params: { date: selectedDate } })
-      console.log(data);
 
-      setReservations(data)
-    } catch {
-      setReservations([])
-    } finally { setLoading(false) }
-  }
-
-  useEffect(() => { load() }, [selectedDate, activeBranchId])
 
   const updateStatus = async (id: string, status: string, tableId?: string) => {
     try {
@@ -122,40 +153,7 @@ export default function ReservationsPage() {
     }
   }
 
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault()
-    // L\u1ea5y branchId t\u1eeb form n\u1ebfu l\u00e0 Owner v\u00e0 đang th\u00eam m\u1edbi, ho\u1eb7c t\u1eeb activeBranchId
-    const targetBranchId = isOwner ? form.branchId || selectedBranchId : (user?.branchId || '')
 
-    if (!targetBranchId || targetBranchId === 'all') {
-      toast.error('Vui lòng chọn chi nhánh!')
-      return
-    }
-
-    try {
-      await api.post('/api/reservations', {
-        branchId: targetBranchId,
-        guestName: form.guestName,
-        guestPhone: form.guestPhone,
-        partySize: form.partySize,
-        reservedAt: form.reservedAt,
-        note: form.note,
-      })
-      setShowModal(false)
-      setForm({ guestName: '', guestPhone: '', partySize: 2, reservedAt: '', note: '', branchId: '' })
-      toast.success('Đã tạo đặt bàn thành công')
-      await logUserAction({
-        action: `Tạo mới đặt bàn cho khách: ${form.guestName}`,
-        module: AuditModules.RESERVATION,
-        newData: { ...form, branchId: targetBranchId }
-      })
-      load()
-    } catch (err: any) {
-      console.error(err)
-      const msg = err.response?.data?.message || 'Có lỗi xảy ra khi tạo đặt bàn'
-      toast.error(msg)
-    }
-  }
 
   const groupByTime = () => {
     const groups: Record<string, Reservation[]> = {}
@@ -186,7 +184,7 @@ export default function ReservationsPage() {
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <button
-              onClick={() => setShowModal(true)}
+              onClick={handleOpenCreate}
               className="btn btn-primary"
               style={{ height: '42px', padding: '0 20px', borderRadius: '12px', gap: '8px', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' }}
             >
@@ -226,6 +224,29 @@ export default function ReservationsPage() {
                       color: '#0f172a',
                       outline: 'none',
                       cursor: 'pointer'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Tìm kiếm khách
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <Search size={18} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                  <input
+                    type="text"
+                    placeholder="Tên, SĐT..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px 10px 40px',
+                      borderRadius: '12px',
+                      border: '1px solid #e2e8f0',
+                      fontSize: '15px',
+                      outline: 'none'
                     }}
                   />
                 </div>
@@ -397,6 +418,16 @@ export default function ReservationsPage() {
                 ))}
               </div>
             )}
+            
+            <div style={{ marginTop: '32px' }}>
+              <Pagination
+                pageIndex={pageIndex}
+                pageSize={pageSize}
+                totalCount={totalCount}
+                totalPages={totalPages}
+                onPageChange={setPage}
+              />
+            </div>
           </div>
         </div>
 
@@ -414,69 +445,97 @@ export default function ReservationsPage() {
                 </button>
               </div>
 
-              <form onSubmit={create} style={{ padding: '24px' }}>
+              <form onSubmit={formik.handleSubmit} style={{ padding: '24px' }}>
                 <div style={{ display: 'grid', gap: '20px' }}>
-                  {/* Owner: ch\u1ecdn chi nh\u00e1nh khi th\u00eam m\u1edbi đ\u1ebft b\u00e0n */}
+                  {/* Owner: chọn chi nhánh khi thêm mới đế bàn */}
                   {isOwner && (
                     <div>
                       <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '8px' }}>Chi nhánh *</label>
-                      <SelectBox options={branches} optionLabel='name' optionValue='id' onChange={val => setForm({ ...form, branchId: val })} value={form.branchId} />
+                      <SelectBox
+                        options={branches}
+                        optionLabel='name'
+                        optionValue='id'
+                        onChange={val => formik.setFieldValue('branchId', val)}
+                        value={formik.values.branchId}
+                      />
+                      {formik.touched.branchId && formik.errors.branchId && (
+                        <p className="text-red-500 text-xs mt-1">{formik.errors.branchId}</p>
+                      )}
                     </div>
                   )}
 
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '8px' }}>Tên khách hàng *</label>
                     <input
-                      required
-                      value={form.guestName}
-                      onChange={e => setForm({ ...form, guestName: e.target.value })}
-                      className="input"
+                      name="guestName"
+                      value={formik.values.guestName}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      className={`input ${formik.touched.guestName && formik.errors.guestName ? 'border-red-500' : ''}`}
                       style={{ height: '45px', borderRadius: '12px' }}
                       placeholder="VD: Anh Tuấn"
                     />
+                    {formik.touched.guestName && formik.errors.guestName && (
+                      <p className="text-red-500 text-xs mt-1">{formik.errors.guestName}</p>
+                    )}
                   </div>
 
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '8px' }}>Số điện thoại</label>
                     <input
-                      value={form.guestPhone}
-                      onChange={e => setForm({ ...form, guestPhone: e.target.value })}
-                      className="input"
+                      name="guestPhone"
+                      value={formik.values.guestPhone}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      className={`input ${formik.touched.guestPhone && formik.errors.guestPhone ? 'border-red-500' : ''}`}
                       style={{ height: '45px', borderRadius: '12px' }}
                       placeholder="VD: 0901234567"
                     />
+                    {formik.touched.guestPhone && formik.errors.guestPhone && (
+                      <p className="text-red-500 text-xs mt-1">{formik.errors.guestPhone}</p>
+                    )}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div>
                       <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '8px' }}>Số khách</label>
                       <input
+                        name="partySize"
                         type="number"
-                        min={1}
-                        value={form.partySize}
-                        onChange={e => setForm({ ...form, partySize: Number(e.target.value) })}
-                        className="input"
+                        value={formik.values.partySize}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        className={`input ${formik.touched.partySize && formik.errors.partySize ? 'border-red-500' : ''}`}
                         style={{ height: '45px', borderRadius: '12px' }}
                       />
+                      {formik.touched.partySize && formik.errors.partySize && (
+                        <p className="text-red-500 text-xs mt-1">{formik.errors.partySize}</p>
+                      )}
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '8px' }}>Thời gian đến *</label>
                       <input
+                        name="reservedAt"
                         type="datetime-local"
-                        required
-                        value={form.reservedAt}
-                        onChange={e => setForm({ ...form, reservedAt: e.target.value })}
-                        className="input"
+                        value={formik.values.reservedAt}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        className={`input ${formik.touched.reservedAt && formik.errors.reservedAt ? 'border-red-500' : ''}`}
                         style={{ height: '45px', borderRadius: '12px', fontSize: '13px' }}
                       />
+                      {formik.touched.reservedAt && formik.errors.reservedAt && (
+                        <p className="text-red-500 text-xs mt-1">{formik.errors.reservedAt}</p>
+                      )}
                     </div>
                   </div>
 
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '8px' }}>Ghi chú dịch vụ</label>
                     <textarea
-                      value={form.note}
-                      onChange={e => setForm({ ...form, note: e.target.value })}
+                      name="note"
+                      value={formik.values.note}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
                       className="input"
                       style={{ minHeight: '80px', borderRadius: '12px', padding: '12px', resize: 'none' }}
                       placeholder="VD: Yêu cầu bàn VIP, tránh ồn..."

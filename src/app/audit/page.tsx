@@ -19,74 +19,60 @@ import {
 } from 'lucide-react'
 import { SelectBox } from '@/components/SelectBox'
 import { useAuth } from '@/lib/auth'
-import { useBranches } from '@/hooks/useApi'
+import { useBranches, useAuditLogs } from '@/hooks/useApi'
+import { BranchSelector } from '@/components/BranchSelector'
+import { usePagination } from '@/hooks/usePagination'
+import { Pagination } from '@/components/Pagination'
 
 interface AuditLog {
   id: string
   userId: string
   userName?: string
-  action: string // Create, Update, Delete, Login, etc.
-  module: string // Order, Menu, Employee, etc.
+  action: string 
+  module: string 
   targetId?: string
-  oldData?: string // JSON string
-  newData?: string // JSON string
+  oldData?: string 
+  newData?: string 
   ipAddress?: string
   userAgent?: string
   createdAt: string
 }
 
 const modules = [
-  { id: 'all', label: 'All' },
-  { id: 'order', name: 'Order' },
-  { id: 'menu', name: 'Menu' },
-  { id: 'employee', name: 'Employee' },
-  { id: 'customer', name: 'Customer' },
-  { id: 'auth', name: 'Auth' },
-  { id: 'inventory', name: 'Inventory' },
+  { id: 'All', name: 'Tất cả' },
+  { id: 'Order', name: 'Đơn hàng' },
+  { id: 'Menu', name: 'Thực đơn' },
+  { id: 'Employee', name: 'Nhân viên' },
+  { id: 'Customer', name: 'Khách hàng' },
+  { id: 'Auth', name: 'Bảo mật' },
+  { id: 'Inventory', name: 'Kho hàng' },
 ]
 
 export default function AuditLogsPage() {
   const [mounted, setMounted] = useState(false)
-  const { user } = useAuth()
+  const { user, selectedBranchId } = useAuth()
   const isOwner = user?.isOwner
   const restaurantId = user?.restaurantId || ''
 
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('')
   const { data: branches = [] } = useBranches(isOwner ? restaurantId : '')
 
-  const [logs, setLogs] = useState<AuditLog[]>([])
-  const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState(1)
-  const [pageSize] = useState(20)
-  const [search, setSearch] = useState('')
+  const { pageIndex, pageSize, search, setPage, setSearch, paginationParams } = usePagination(20)
   const [module, setModule] = useState('All')
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null)
 
-  const loadLogs = async () => {
-    setLoading(true)
-    try {
-      // Adjust endpoint to match backend
-      const { data } = await api.get('/api/audit', {
-        params: {
-          page,
-          pageSize,
-          search,
-          module: module === 'All' ? undefined : module,
-          branchId: isOwner ? selectedBranchId : undefined
-        }
-      })
-      setLogs(data.items || data) // Backend might return { items: [], total: 0 } or just []
-    } catch {
-      setLogs([])
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { data: auditData, isLoading: loading, refetch: loadLogs } = useAuditLogs({
+    ...paginationParams,
+    module: module === 'All' ? undefined : module,
+    branchId: isOwner ? selectedBranchId! : undefined
+  } as any)
+
+  const logs = auditData?.items || (Array.isArray(auditData) ? auditData : [])
+  const totalCount = auditData?.totalCount || logs.length
+  const totalPages = auditData?.totalPages || 1
 
   useEffect(() => {
     setMounted(true)
-    loadLogs()
-  }, [page, module, selectedBranchId])
+  }, [])
 
   const getActionColor = (action: string) => {
     const a = action.toLowerCase()
@@ -122,25 +108,13 @@ export default function AuditLogsPage() {
               placeholder="Tìm theo ID thực thể, IP, hoặc Người dùng..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && loadLogs()}
               className="w-full bg-gray-50 border-0 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all"
             />
           </div>
           <div className="flex items-center gap-4 w-full md:w-auto">
-            {isOwner && (
-              <div className="w-full md:w-64">
-                <SelectBox 
-                  options={[{id: '', name: 'Tất cả chi nhánh'}, ...branches]} 
-                  optionLabel='name' 
-                  optionValue='id' 
-                  onChange={val => setSelectedBranchId(val)} 
-                  value={selectedBranchId}
-                />
-              </div>
-            )}
             <div className="relative w-full md:w-48">
               <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <SelectBox options={modules} optionLabel='name' optionValue='id' onChange={val => setModule(val)} value={module} />
+              <SelectBox options={modules} optionLabel='name' optionValue='id' onChange={val => { setModule(val); setPage(1); }} value={module} />
             </div>
             <button
               onClick={loadLogs}
@@ -231,27 +205,13 @@ export default function AuditLogsPage() {
             </table>
           </div>
 
-          {/* Pagination */}
-          <div className="px-6 py-6 bg-gray-50/50 flex items-center justify-between border-t border-gray-100">
-            <p className="text-sm text-gray-500 font-medium font-sans">
-              Trang {page} / 10 (Demo)
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="w-10 h-10 rounded-xl border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-white transition-all disabled:opacity-30 shadow-sm"
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <button
-                onClick={() => setPage(p => p + 1)}
-                className="w-10 h-10 rounded-xl border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-white transition-all shadow-sm"
-              >
-                <ChevronRight size={20} />
-              </button>
-            </div>
-          </div>
+          <Pagination
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
         </div>
 
         {/* JSON Detail Modal */}

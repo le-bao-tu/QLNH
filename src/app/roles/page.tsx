@@ -1,10 +1,13 @@
 'use client'
 
 import { useState } from 'react'
+import { useFormik } from 'formik'
+import * as Yup from 'yup'
 import AuthLayout from '@/components/AuthLayout'
 import { useAuth } from '@/lib/auth'
 import { useRoles, useCreateRole, useUpdateRole, useDeleteRole } from '@/hooks/useApi'
 import { Plus, Edit2, Trash2, KeyRound, Check, X, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { BranchSelector } from '@/components/BranchSelector'
 
 const AVAILABLE_PERMISSIONS = [
   { id: 'DASHBOARD', label: 'Dashboard', desc: 'Xem thống kê tổng quan' },
@@ -22,69 +25,75 @@ const AVAILABLE_PERMISSIONS = [
 export default function RolesPage() {
   const { user } = useAuth()
   const restaurantId = user?.restaurantId || ''
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingRole, setEditingRole] = useState<any>(null)
   
   const { data: roles = [], isLoading } = useRoles(restaurantId)
   const createRole = useCreateRole()
   const updateRole = useUpdateRole()
   const deleteRole = useDeleteRole()
 
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [editingRole, setEditingRole] = useState<any>(null)
-  
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    permissions: [] as string[]
-  })
+  const validationSchema = Yup.object({
+    name: Yup.string().required('Tên vai trò là bắt buộc').max(50, 'Không quá 50 ký tự'),
+    description: Yup.string().max(200, 'Không quá 200 ký tự'),
+    permissions: Yup.array().min(1, 'Vui lòng chọn ít nhất một quyền'),
+  });
+
+  const formik = useFormik({
+    initialValues: { name: '', description: '', permissions: [] as string[] },
+    validationSchema,
+    onSubmit: async (values) => {
+      try {
+        if (editingRole) {
+          await updateRole.mutateAsync({ id: editingRole.id, ...values });
+        } else {
+          await createRole.mutateAsync({ restaurantId, ...values });
+        }
+        handleCloseModal();
+      } catch (error) {
+        console.error(error);
+        alert('Đã xảy ra lỗi khi lưu vai trò.');
+      }
+    }
+  });
 
   const handleOpenModal = (role?: any) => {
     if (role) {
-      setEditingRole(role)
-      setFormData({
+      setEditingRole(role);
+      formik.setValues({
         name: role.name,
         description: role.description || '',
         permissions: role.permissions || []
-      })
+      });
     } else {
-      setEditingRole(null)
-      setFormData({ name: '', description: '', permissions: [] })
+      setEditingRole(null);
+      formik.resetForm();
     }
-    setIsModalOpen(true)
+    setIsModalOpen(true);
   }
 
   const handleCloseModal = () => {
-    setIsModalOpen(false)
-    setEditingRole(null)
+    setIsModalOpen(false);
+    setEditingRole(null);
+    formik.resetForm();
   }
 
   const handleTogglePermission = (id: string) => {
-    setFormData(prev => ({
-      ...prev,
-      permissions: prev.permissions.includes(id) 
-        ? prev.permissions.filter(p => p !== id)
-        : [...prev.permissions, id]
-    }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      if (editingRole) {
-        await updateRole.mutateAsync({ id: editingRole.id, ...formData })
-      } else {
-        await createRole.mutateAsync({ restaurantId, ...formData })
-      }
-      handleCloseModal()
-    } catch (error) {
-      console.error(error)
-      alert('Đã xảy ra lỗi khi lưu vai trò.')
-    }
+    const nextPerms = formik.values.permissions.includes(id)
+      ? formik.values.permissions.filter(p => p !== id)
+      : [...formik.values.permissions, id];
+    formik.setFieldValue('permissions', nextPerms);
   }
 
   const handleDelete = async (id: string) => {
     if (confirm('Bạn có chắc chắn muốn xóa vai trò này?')) {
       await deleteRole.mutateAsync(id)
     }
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    formik.handleSubmit(e as any)
   }
 
   return (
@@ -100,12 +109,14 @@ export default function RolesPage() {
             </h1>
             <p className="text-gray-500 mt-2 font-medium">Thiết lập các nhóm quyền hạn cho nhân viên trong hệ thống</p>
           </div>
-          <button 
-            onClick={() => handleOpenModal()}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold transition-all shadow-lg shadow-indigo-200 flex items-center gap-2"
-          >
-            <Plus size={20} /> Thêm vai trò
-          </button>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => handleOpenModal()}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold transition-all shadow-lg shadow-indigo-200 flex items-center gap-2"
+            >
+              <Plus size={20} /> Thêm vai trò
+            </button>
+          </div>
         </div>
 
         {isLoading ? (
@@ -171,20 +182,24 @@ export default function RolesPage() {
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-gray-700">Tên vai trò <span className="text-red-500">*</span></label>
                       <input 
-                        required
+                        name="name"
                         type="text" 
-                        value={formData.name}
-                        onChange={e => setFormData({...formData, name: e.target.value})}
-                        className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none font-medium"
+                        value={formik.values.name}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        className={`w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none font-medium ${formik.touched.name && formik.errors.name ? 'ring-2 ring-red-500' : ''}`}
                         placeholder="VD: Thu ngân"
                       />
+                      {formik.touched.name && formik.errors.name && <p className="text-red-500 text-xs mt-1 font-bold">{formik.errors.name}</p>}
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-gray-700">Mô tả</label>
                       <input 
+                        name="description"
                         type="text" 
-                        value={formData.description}
-                        onChange={e => setFormData({...formData, description: e.target.value})}
+                        value={formik.values.description}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
                         className="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none font-medium"
                         placeholder="Mô tả chức năng chính..."
                       />
@@ -192,16 +207,17 @@ export default function RolesPage() {
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-between mb-2">
                       <label className="text-sm font-bold text-gray-700">Quyền truy cập</label>
-                      <span className="text-xs font-bold px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full">
-                        Đã chọn {formData.permissions.length} quyền
+                      <span className={`text-xs font-bold px-3 py-1 rounded-full ${formik.touched.permissions && formik.errors.permissions ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                        Đã chọn {formik.values.permissions.length} quyền
                       </span>
                     </div>
+                    {formik.touched.permissions && formik.errors.permissions && <p className="text-red-500 text-xs mb-4 font-bold">{formik.errors.permissions}</p>}
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {AVAILABLE_PERMISSIONS.map(perm => {
-                        const isSelected = formData.permissions.includes(perm.id)
+                        const isSelected = formik.values.permissions.includes(perm.id)
                         return (
                           <div 
                             key={perm.id}

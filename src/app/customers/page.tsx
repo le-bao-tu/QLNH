@@ -4,6 +4,11 @@ import { useState, useEffect } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { usePagination } from '@/hooks/usePagination'
+import { Pagination } from '@/components/Pagination'
+import { useCustomers } from '@/hooks/useApi'
+import { useFormik } from 'formik'
+import * as Yup from 'yup'
 
 interface Customer {
   id: string
@@ -28,36 +33,45 @@ export default function CustomersPage() {
   const { user } = useAuth()
   const restaurantId = user?.restaurantId || ''
 
-  const [customers, setCustomers] = useState<Customer[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
+  const { pageIndex, pageSize, search, setSearch, setPage, paginationParams } = usePagination(20)
+
+  const { data: customerData, isLoading: loading, refetch } = useCustomers(restaurantId, paginationParams)
+  
+  const customers = customerData?.items || (Array.isArray(customerData) ? customerData : [])
+  const totalCount = customerData?.totalCount || customers.length
+  const totalPages = customerData?.totalPages || 1
+
   const [showModal, setShowModal] = useState(false)
   const [selected, setSelected] = useState<Customer | null>(null)
-  const [form, setForm] = useState({ fullName: '', phone: '', email: '', gender: '', note: '' })
 
-  const load = async (q?: string) => {
-    if (!restaurantId) return
-    setLoading(true)
-    try {
-      const { data } = await api.get(`/api/customers/restaurant/${restaurantId}`, { params: { search: q } })
-      setCustomers(data)
-    } catch { setCustomers([]) } finally { setLoading(false) }
-  }
+  const validationSchema = Yup.object({
+    fullName: Yup.string().required('Họ tên là bắt buộc').max(100, 'Họ tên không quá 100 ký tự'),
+    phone: Yup.string().matches(/^[0-9+]+$/, 'Số điện thoại không hợp lệ').min(10, 'Ít nhất 10 số').when('email', {
+      is: (email: string) => !email || email.length === 0,
+      then: (schema) => schema.required('Số điện thoại hoặc Email là bắt buộc'),
+    }),
+    email: Yup.string().email('Email không hợp lệ'),
+  });
 
-  useEffect(() => { load() }, [restaurantId])
+  const formik = useFormik({
+    initialValues: { fullName: '', phone: '', email: '', note: '' },
+    validationSchema,
+    onSubmit: async (values) => {
+      if (!restaurantId) return;
+      try {
+        await api.post('/api/customers', { restaurantId, ...values });
+        setShowModal(false);
+        formik.resetForm();
+        refetch();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  });
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    load(search)
-  }
-
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!restaurantId) return
-    await api.post('/api/customers', { restaurantId: restaurantId, ...form })
-    setShowModal(false)
-    setForm({ fullName: '', phone: '', email: '', gender: '', note: '' })
-    load()
+  const handleOpenCreate = () => {
+    formik.resetForm();
+    setShowModal(true);
   }
 
   return (
@@ -69,7 +83,7 @@ export default function CustomersPage() {
             <h1 className="text-2xl font-bold text-gray-900">Khách hàng</h1>
             <p className="text-gray-500 text-sm mt-1">Quản lý khách hàng và điểm tích lũy</p>
           </div>
-          <button onClick={() => setShowModal(true)}
+          <button onClick={handleOpenCreate}
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
             Thêm khách hàng
@@ -91,12 +105,12 @@ export default function CustomersPage() {
         </div>
 
         {/* Search */}
-        <form onSubmit={handleSearch} className="bg-white rounded-xl shadow-sm border p-4 mb-6 flex gap-3">
+        <div className="bg-white rounded-xl shadow-sm border p-4 mb-6 flex gap-3">
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Tìm theo tên, số điện thoại..."
             className="flex-1 border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-          <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Tìm</button>
-        </form>
+          <button onClick={() => refetch()} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Tìm</button>
+        </div>
 
         {/* Table */}
         {loading ? (
@@ -116,7 +130,7 @@ export default function CustomersPage() {
               <tbody>
                 {customers.length === 0 ? (
                   <tr><td colSpan={5} className="text-center py-12 text-gray-400">Không có khách hàng nào</td></tr>
-                ) : customers.map(c => {
+                ) : customers.map((c: any) => {
                   const cfg = tierConfig[c.loyaltyTier] || tierConfig.bronze
                   return (
                     <tr key={c.id} onClick={() => setSelected(c)}
@@ -146,6 +160,13 @@ export default function CustomersPage() {
                 })}
               </tbody>
             </table>
+            <Pagination
+              pageIndex={pageIndex}
+              pageSize={pageSize}
+              totalCount={totalCount}
+              totalPages={totalPages}
+              onPageChange={setPage}
+            />
           </div>
         )}
 
@@ -186,28 +207,53 @@ export default function CustomersPage() {
             <div className="bg-white rounded-2xl w-full max-w-md">
               <div className="p-6">
                 <h2 className="text-lg font-bold mb-4">Thêm khách hàng</h2>
-                <form onSubmit={create} className="space-y-4">
+                <form onSubmit={formik.handleSubmit} className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700">Họ tên *</label>
-                    <input required value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })}
-                      className="w-full mt-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <input
+                      name="fullName"
+                      value={formik.values.fullName}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      className={`w-full mt-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${formik.touched.fullName && formik.errors.fullName ? 'border-red-500' : ''}`}
+                    />
+                    {formik.touched.fullName && formik.errors.fullName && <p className="text-red-500 text-xs mt-1">{formik.errors.fullName}</p>}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-sm font-medium text-gray-700">Số điện thoại</label>
-                      <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })}
-                        className="w-full mt-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <input
+                        name="phone"
+                        value={formik.values.phone}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        className={`w-full mt-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${formik.touched.phone && formik.errors.phone ? 'border-red-500' : ''}`}
+                      />
+                      {formik.touched.phone && formik.errors.phone && <p className="text-red-500 text-xs mt-1">{formik.errors.phone}</p>}
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Email</label>
-                      <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })}
-                        className="w-full mt-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <input
+                        name="email"
+                        type="email"
+                        value={formik.values.email}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        className={`w-full mt-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${formik.touched.email && formik.errors.email ? 'border-red-500' : ''}`}
+                      />
+                      {formik.touched.email && formik.errors.email && <p className="text-red-500 text-xs mt-1">{formik.errors.email}</p>}
                     </div>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Ghi chú</label>
-                    <textarea value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}
-                      className="w-full mt-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" rows={2} />
+                    <textarea
+                      name="note"
+                      value={formik.values.note}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      className="w-full mt-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      rows={2}
+                    />
                   </div>
                   <div className="flex gap-3 pt-2">
                     <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Hủy</button>

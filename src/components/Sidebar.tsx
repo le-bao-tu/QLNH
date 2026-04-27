@@ -20,8 +20,9 @@ import {
   Shield,
 } from 'lucide-react'
 import { ROLE_LABEL, ROLE_MAP } from '@/common/constant'
-import { useRestaurant, useRoles } from '@/hooks/useApi'
+import { useRestaurant, useRoles, useBranches } from '@/hooks/useApi'
 import { useToast } from '@/hooks/useToast'
+import { SelectBox } from './SelectBox'
 
 // Menu items với phân quyền: roles = [] nghĩa là tất cả đều thấy
 const navItems = [
@@ -47,10 +48,11 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const { user, logout } = useAuth()
+  const { user, logout, selectedBranchId, setSelectedBranchId } = useAuth()
   const { success, error, info } = useToast()
 
   const { data: restaurant } = useRestaurant(user?.restaurantId as string)
+  const { data: branches = [] } = useBranches(user?.restaurantId as string)
   const { data: customRoles = [] } = useRoles(user?.restaurantId as string)
 
   const visibleItems = navItems.filter(item => {

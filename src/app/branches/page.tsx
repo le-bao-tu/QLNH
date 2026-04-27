@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
+import { useFormik } from 'formik'
+import * as Yup from 'yup'
 import AuthLayout from '@/components/AuthLayout'
 import { useBranches } from '@/hooks/useApi'
 import { GitBranch, Plus, MapPin, Phone, Edit3, CheckCircle2, XCircle } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { useToast } from '@/hooks/useToast'
-import { ConfirmModal } from '@/components/ConfirmModal'
 import { logUserAction, AuditModules } from '@/lib/audit'
 
 export default function BranchesPage() {
@@ -21,48 +22,64 @@ export default function BranchesPage() {
   const [saving, setSaving] = useState(false)
   const toast = useToast()
   
+  const validationSchema = Yup.object({
+    name: Yup.string().required('Vui lòng nhập tên chi nhánh').max(100, 'Không quá 100 ký tự'),
+    address: Yup.string().max(200, 'Không quá 200 ký tự'),
+    phone: Yup.string().matches(/^[0-9+ ]*$/, 'Số điện thoại không hợp lệ').max(20, 'Không quá 20 số'),
+    isActive: Yup.boolean()
+  });
+
+  const formik = useFormik({
+    initialValues: { name: '', address: '', phone: '', isActive: true },
+    validationSchema,
+    onSubmit: async (values) => {
+      setSaving(true);
+      try {
+        if (editingBranch) {
+          await api.put(`/api/branches/${editingBranch.id}`, { ...values, restaurantId });
+          await logUserAction({
+            action: `Cập nhật thông tin chi nhánh: ${values.name}`,
+            module: AuditModules.BRANCH,
+            targetId: editingBranch.id,
+            newData: values
+          });
+          toast.success('Đã cập nhật chi nhánh');
+        } else {
+          const res = await api.post('/api/branches', { ...values, restaurantId });
+          await logUserAction({
+            action: `Thêm chi nhánh mới: ${values.name}`,
+            module: AuditModules.BRANCH,
+            targetId: res.data?.id,
+            newData: values
+          });
+          toast.success('Đã thêm chi nhánh mới');
+        }
+        await refetch();
+        setShowModal(false);
+        formik.resetForm();
+      } catch (err: any) {
+        toast.error(err.response?.data?.message || 'Lỗi khi lưu chi nhánh');
+      } finally {
+        setSaving(false);
+      }
+    }
+  });
+
   const openAddModal = () => {
-    setEditingBranch(null)
-    setFormData({ name: '', address: '', phone: '', isActive: true })
-    setShowModal(true)
+    setEditingBranch(null);
+    formik.resetForm();
+    setShowModal(true);
   }
 
   const openEditModal = (branch: any) => {
-    setEditingBranch(branch)
-    setFormData({ name: branch.name, address: branch.address, phone: branch.phone, isActive: branch.isActive })
-    setShowModal(true)
-  }
-
-  const handleSave = async () => {
-    if (!formData.name.trim()) { toast.error('Vui lòng nhập tên chi nhánh'); return }
-    setSaving(true)
-    try {
-      if (editingBranch) {
-        await api.put(`/api/branches/${editingBranch.id}`, { ...formData, restaurantId })
-        await logUserAction({
-          action: `Cập nhật thông tin chi nhánh: ${formData.name}`,
-          module: AuditModules.BRANCH,
-          targetId: editingBranch.id,
-          newData: formData
-        })
-        toast.success('Đã cập nhật chi nhánh')
-      } else {
-        const res = await api.post('/api/branches', { ...formData, restaurantId })
-        await logUserAction({
-          action: `Thêm chi nhánh mới: ${formData.name}`,
-          module: AuditModules.BRANCH,
-          targetId: res.data?.id,
-          newData: formData
-        })
-        toast.success('Đã thêm chi nhánh mới')
-      }
-      await refetch()
-      setShowModal(false)
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Lỗi khi lưu chi nhánh')
-    } finally {
-      setSaving(false)
-    }
+    setEditingBranch(branch);
+    formik.setValues({
+      name: branch.name,
+      address: branch.address || '',
+      phone: branch.phone || '',
+      isActive: branch.isActive
+    });
+    setShowModal(true);
   }
 
   if (!restaurantId) return (
@@ -186,46 +203,56 @@ export default function BranchesPage() {
               </div>
 
               <div className="p-8 space-y-5">
-                <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Tên chi nhánh *</label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    placeholder="VD: Chi nhánh Quận 1"
-                    className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-indigo-600 transition-all font-medium text-lg"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Địa chỉ</label>
-                  <input
-                    type="text"
-                    value={formData.address}
-                    onChange={e => setFormData({...formData, address: e.target.value})}
-                    placeholder="VD: 123 Nguyễn Huệ, Q.1, TP.HCM"
-                    className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-indigo-600 transition-all font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Số điện thoại</label>
-                  <input
-                    type="text"
-                    value={formData.phone}
-                    onChange={e => setFormData({...formData, phone: e.target.value})}
-                    placeholder="VD: 028 1234 5678"
-                    className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-indigo-600 transition-all font-medium"
-                  />
-                </div>
-                <label className="flex items-center gap-3 cursor-pointer p-3 rounded-2xl hover:bg-gray-50 transition-colors">
-                  <div
-                    onClick={() => setFormData({...formData, isActive: !formData.isActive})}
-                    className={`w-12 h-6 rounded-full transition-colors relative ${formData.isActive ? 'bg-green-500' : 'bg-gray-300'}`}
-                  >
-                    <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform shadow-sm ${formData.isActive ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                <form id="branchForm" onSubmit={formik.handleSubmit} className="space-y-5">
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Tên chi nhánh *</label>
+                    <input
+                      name="name"
+                      type="text"
+                      value={formik.values.name}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      placeholder="VD: Chi nhánh Quận 1"
+                      className={`w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-indigo-600 transition-all font-medium text-lg ${formik.touched.name && formik.errors.name ? 'ring-2 ring-red-500' : ''}`}
+                    />
+                    {formik.touched.name && formik.errors.name && <p className="text-red-500 text-xs mt-1 font-bold">{formik.errors.name}</p>}
                   </div>
-                  <span className="font-bold text-gray-700">Chi nhánh đang hoạt động</span>
-                </label>
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Địa chỉ</label>
+                    <input
+                      name="address"
+                      type="text"
+                      value={formik.values.address}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      placeholder="VD: 123 Nguyễn Huệ, Q.1, TP.HCM"
+                      className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-indigo-600 transition-all font-medium"
+                    />
+                    {formik.touched.address && formik.errors.address && <p className="text-red-500 text-xs mt-1 font-bold">{formik.errors.address}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Số điện thoại</label>
+                    <input
+                      name="phone"
+                      type="text"
+                      value={formik.values.phone}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      placeholder="VD: 028 1234 5678"
+                      className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-indigo-600 transition-all font-medium"
+                    />
+                    {formik.touched.phone && formik.errors.phone && <p className="text-red-500 text-xs mt-1 font-bold">{formik.errors.phone}</p>}
+                  </div>
+                  <label className="flex items-center gap-3 cursor-pointer p-3 rounded-2xl hover:bg-gray-50 transition-colors">
+                    <div
+                      onClick={() => formik.setFieldValue('isActive', !formik.values.isActive)}
+                      className={`w-12 h-6 rounded-full transition-colors relative ${formik.values.isActive ? 'bg-green-500' : 'bg-gray-300'}`}
+                    >
+                      <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform shadow-sm ${formik.values.isActive ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                    </div>
+                    <span className="font-bold text-gray-700">Chi nhánh đang hoạt động</span>
+                  </label>
+                </form>
               </div>
 
               <div className="p-8 border-t border-gray-100 flex gap-4">
@@ -236,7 +263,8 @@ export default function BranchesPage() {
                   Hủy bỏ
                 </button>
                 <button
-                  onClick={handleSave}
+                  type="submit"
+                  form="branchForm"
                   disabled={saving}
                   className="flex-1 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-2xl font-bold transition-all shadow-xl shadow-indigo-100"
                 >

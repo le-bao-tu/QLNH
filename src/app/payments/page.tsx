@@ -1,11 +1,15 @@
 'use client'
-import { useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 
 import AuthLayout from '@/components/AuthLayout'
 import { useAuth } from '@/lib/auth'
 import { CreditCard, Search, Calendar, Landmark, Coins, Receipt, Wallet, User, ChevronRight, CheckCircle2 } from 'lucide-react'
-import { useRecentPaymentsInBranch, useRecentPaymentsInRestaurant } from '@/hooks/useApi'
+import { useBranches, useRecentPayments } from '@/hooks/useApi'
 import { PAYMENT_METHOD_LABEL } from '@/common/constant'
+import { BranchSelector } from '@/components/BranchSelector'
+import { Pagination } from '@/components/Pagination'
+import { usePagination } from '@/hooks/usePagination'
+import { SelectBox } from '@/components/SelectBox'
 
 export default function PaymentsPage() {
   const [filter, setFilter] = useState<'today' | 'week' | 'month'>('today')
@@ -14,13 +18,19 @@ export default function PaymentsPage() {
   const restaurantId = user?.restaurantId || ''
   const isOwner = user?.isOwner
 
-  const { data: paymentsInBranch = [] } = useRecentPaymentsInBranch(branchId, {
-    enabled: !isOwner && branchId != ''
-  })
-  const { data: paymentsInRestaurant = [] } = useRecentPaymentsInRestaurant(restaurantId, {
-    enabled: isOwner && restaurantId != ''
-  })
-  const allPayments = (isOwner ? paymentsInRestaurant : paymentsInBranch) as any[]
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')
+  const workingId = isOwner && !selectedBranchId ? restaurantId : selectedBranchId || branchId
+  const mode = isOwner && !selectedBranchId ? 'restaurant' : 'branch'
+
+  const { pageIndex, pageSize, search, setSearch, setPage, paginationParams } = usePagination(20)
+
+  const { data: paymentData, isLoading } = useRecentPayments(workingId, mode, paginationParams)
+  const { data: branches = [] } = useBranches(restaurantId)
+
+  const allPayments = paymentData?.items || (Array.isArray(paymentData) ? paymentData : [])
+  const totalCount = paymentData?.totalCount || allPayments.length
+  const totalPages = paymentData?.totalPages || 1
+
 
   const filteredPayments = allPayments.filter(p => {
     const pDate = new Date(p.createdAt)
@@ -68,6 +78,15 @@ export default function PaymentsPage() {
     return sortedMethods.length > 0 ? sortedMethods[0][0] : 'N/A'
   }
 
+  // Nếu là owner và chưa có chi nhánh nào được chọn, tự động chọn chi nhánh đầu tiên
+  useEffect(() => {
+    if (isOwner && !selectedBranchId && branches.length > 0) {
+      startTransition(() => {
+        setSelectedBranchId(prev => prev || branches[0].id)
+      })
+    }
+  }, [isOwner, selectedBranchId, branches])
+
   return (
     <AuthLayout>
       <div className="p-8 max-w-7xl mx-auto">
@@ -82,25 +101,34 @@ export default function PaymentsPage() {
             <p className="text-gray-500 mt-2 text-lg">Theo dõi dòng tiền và lịch sử thanh toán từ khách hàng</p>
           </div>
 
-          <div className="flex bg-white p-2 rounded-2xl border border-gray-100 shadow-sm">
-            <button
-              onClick={() => setFilter('today')}
-              className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${filter === 'today' ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-gray-400 hover:text-gray-900'}`}
-            >
-              Hôm nay
-            </button>
-            <button
-              onClick={() => setFilter('week')}
-              className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${filter === 'week' ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-gray-400 hover:text-gray-900'}`}
-            >
-              Tuần này
-            </button>
-            <button
-              onClick={() => setFilter('month')}
-              className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${filter === 'month' ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-gray-400 hover:text-gray-900'}`}
-            >
-              Tháng này
-            </button>
+          <div className="flex items-center gap-4">
+            {
+              isOwner && (
+                <div className='w-52'>
+                  <SelectBox value={selectedBranchId} options={branches} optionLabel='name' optionValue='id' onChange={(val) => setSelectedBranchId(val)} />
+                </div>
+              )
+            }
+            <div className="flex bg-white p-2 rounded-2xl border border-gray-100 shadow-sm shrink-0">
+              <button
+                onClick={() => setFilter('today')}
+                className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${filter === 'today' ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-gray-400 hover:text-gray-900'}`}
+              >
+                Hôm nay
+              </button>
+              <button
+                onClick={() => setFilter('week')}
+                className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${filter === 'week' ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-gray-400 hover:text-gray-900'}`}
+              >
+                Tuần này
+              </button>
+              <button
+                onClick={() => setFilter('month')}
+                className={`px-6 py-2 rounded-xl font-bold text-sm transition-all ${filter === 'month' ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-gray-400 hover:text-gray-900'}`}
+              >
+                Tháng này
+              </button>
+            </div>
           </div>
         </div>
 
@@ -137,8 +165,9 @@ export default function PaymentsPage() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input
                 type="text"
-                placeholder="Tìm mã đơn hàng..."
                 className="w-full bg-gray-50 border-0 rounded-xl pl-12 pr-4 py-3 outline-none focus:ring-2 focus:ring-emerald-600 transition-all font-medium text-sm"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
               />
             </div>
           </div>
@@ -187,6 +216,15 @@ export default function PaymentsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="p-8 border-t border-gray-50">
+            <Pagination
+              pageIndex={pageIndex}
+              pageSize={pageSize}
+              totalCount={totalCount}
+              totalPages={totalPages}
+              onPageChange={setPage}
+            />
           </div>
         </div>
       </div>

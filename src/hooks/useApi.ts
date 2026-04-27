@@ -35,17 +35,20 @@ export function useBranches(restaurantId: string) {
   })
 }
 
-// ===== TABLES =====
-export function useTables(branchId: string) {
+export function useTables(workingId: string, type: 'branch' | 'restaurant' = 'branch', configs?: Record<string, any>) {
   return useQuery({
-    queryKey: ['tables', branchId],
+    queryKey: ['tables', type, workingId],
     queryFn: async () => {
-      const { data } = await api.get(`/api/tables/branch/${branchId}`)
+      const endpoint = type === 'branch' 
+        ? `/api/tables/branch/${workingId}` 
+        : `/api/tables/restaurant/${workingId}`
+      const { data } = await api.get(endpoint)
       return data
     },
-    enabled: !!branchId,
+    enabled: !!workingId,
     refetchOnMount: true,
     refetchInterval: 8000,
+    ...configs
   })
 }
 
@@ -73,11 +76,11 @@ export function useUpdateTableStatus() {
 }
 
 // ===== MENU =====
-export function useMenuCategories(restaurantId: string) {
+export function useMenuCategories(restaurantId: string, branchId?: string) {
   return useQuery({
-    queryKey: ['menu-categories', restaurantId],
+    queryKey: ['menu-categories', restaurantId, branchId],
     queryFn: async () => {
-      const { data } = await api.get(`/api/menu/categories/restaurant/${restaurantId}`)
+      const { data } = await api.get(`/api/menu/categories/restaurant/${restaurantId}`, { params: { branchId } })
       return data
     },
     enabled: !!restaurantId,
@@ -85,11 +88,43 @@ export function useMenuCategories(restaurantId: string) {
   })
 }
 
-export function useMenuItems(restaurantId: string) {
+export function useCreateMenuCategory() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (dto: any) => {
+      const { data } = await api.post('/api/menu/categories', dto)
+      return data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['menu-categories'] })
+  })
+}
+
+export function useUpdateMenuCategory() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...dto }: any) => {
+      const { data } = await api.put(`/api/menu/categories/${id}`, dto)
+      return data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['menu-categories'] })
+  })
+}
+
+export function useDeleteMenuCategory() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/api/menu/categories/${id}`)
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['menu-categories'] })
+  })
+}
+
+export function useMenuItems(restaurantId: string, branch?: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['menu-items', restaurantId],
+    queryKey: ['menu-items', restaurantId, branch, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/menu/items/restaurant/${restaurantId}`)
+      const { data } = await api.get(`/api/menu/items/restaurant/${restaurantId}/branch/${branch || null}`, { params })
       return data
     },
     enabled: !!restaurantId,
@@ -100,11 +135,11 @@ export function useMenuItems(restaurantId: string) {
 }
 
 
-export function useMenuItemsInBranch(branchId: string) {
+export function useMenuItemsInBranch(branchId: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['menu-items', branchId],
+    queryKey: ['menu-items', branchId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/menu/items/branch/${branchId}`)
+      const { data } = await api.get(`/api/menu/items/branch/${branchId}`, { params })
       return data
     },
     enabled: !!branchId,
@@ -147,36 +182,45 @@ export function useDeleteMenuItem() {
 }
 
 // ===== ORDERS =====
-export function useOrdersByBranch(branchId: string, config?: any) {
+export function useOrders(restaurantId: string, branchId?: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: [branchId],
+    queryKey: ['orders', restaurantId, branchId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/orders/branch/${branchId}`)
+      const url = branchId 
+        ? `/api/orders/branch/${branchId}` 
+        : `/api/orders/restaurant/${restaurantId}`
+      const { data } = await api.get(url, { params })
       return data
     },
-    ...config
+    enabled: !!(restaurantId || branchId)
   })
 }
 
-export function useOrdersByRestaurant(restaurantId: string, config?: any) {
+export function useRecentPayments(workingId: string, mode: 'branch' | 'restaurant', params?: Record<string, any>) {
   return useQuery({
-    queryKey: [restaurantId],
+    queryKey: ['payments-recent', mode, workingId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/orders/restaurant/${restaurantId}`)
+      const endpoint = mode === 'branch' 
+        ? `/api/payment/recent/branch/${workingId}` 
+        : `/api/payment/recent/restaurant/${workingId}`
+      const { data } = await api.get(endpoint, { params })
       return data
     },
-    ...config
+    enabled: !!workingId
   })
 }
 
-export function useActiveOrders(branchId: string) {
+export function useActiveOrders(workingId: string, type: 'branch' | 'restaurant' = 'branch') {
   return useQuery({
-    queryKey: ['orders', 'active', branchId],
+    queryKey: ['orders', 'active', type, workingId],
     queryFn: async () => {
-      const { data } = await api.get(`/api/orders/active/branch/${branchId}`)
+      const endpoint = type === 'branch'
+        ? `/api/orders/active/branch/${workingId}`
+        : `/api/orders/active/restaurant/${workingId}`
+      const { data } = await api.get(endpoint)
       return data
     },
-    enabled: !!branchId,
+    enabled: !!workingId,
     refetchInterval: 15000,
   })
 }
@@ -203,15 +247,27 @@ export function useTableOrders(tableId: string) {
   })
 }
 
-export function useKitchenOrders(branchId: string) {
+export function useKitchenOrders(branchId: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['orders', 'kitchen', branchId],
+    queryKey: ['orders', 'kitchen', branchId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/orders/kitchen/branch/${branchId}`)
+      const { data } = await api.get(`/api/orders/kitchen/branch/${branchId}`, { params })
       return data
     },
     enabled: !!branchId,
     refetchInterval: 8000, // More frequent for kitchen
+  })
+}
+
+export function useKitchenTickets(branchId: string, params?: Record<string, any>) {
+  return useQuery({
+    queryKey: ['kitchen-tickets', branchId, params],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/kitchen/branch/${branchId}`, { params })
+      return data
+    },
+    enabled: !!branchId,
+    refetchInterval: 10000,
   })
 }
 
@@ -240,11 +296,50 @@ export function useAddOrderItem() {
   })
 }
 
+export function useAddOrderItems() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ orderId, items }: { orderId: string, items: any[] }) => {
+      const { data } = await api.post(`/api/orders/${orderId}/items/multiple`, items)
+      return data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orders'] })
+  })
+}
+
 export function useUpdateOrderStatus() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const { data } = await api.patch(`/api/orders/${id}/status`, { status })
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      queryClient.invalidateQueries({ queryKey: ['tables'] })
+    }
+  })
+}
+
+export function useSplitTable() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (dto: any) => {
+      const { data } = await api.post('/api/orders/split', dto)
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      queryClient.invalidateQueries({ queryKey: ['tables'] })
+    }
+  })
+}
+
+export function useMergeTables() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (dto: any) => {
+      const { data } = await api.post('/api/orders/merge', dto)
       return data
     },
     onSuccess: () => {
@@ -265,6 +360,20 @@ export function useUpdateOrderItemStatus() {
   })
 }
 
+export function useDishSalesStats(workingId: string, filter: string, type: 'branch' | 'restaurant' = 'branch') {
+  return useQuery({
+    queryKey: ['orders', 'stats', 'dish-sales', type, workingId, filter],
+    queryFn: async () => {
+      const endpoint = type === 'branch'
+        ? `/api/orders/stats/dish-sales/branch/${workingId}`
+        : `/api/orders/stats/dish-sales/restaurant/${workingId}`
+      const { data } = await api.get(endpoint, { params: { filter } })
+      return data
+    },
+    enabled: !!workingId
+  })
+}
+
 // ===== PAYMENTS =====
 export function useProcessPayment() {
   const queryClient = useQueryClient()
@@ -280,50 +389,26 @@ export function useProcessPayment() {
   })
 }
 
-export function useRecentPaymentsInBranch(branchId: string, config?: any) {
-  return useQuery({
-    queryKey: ['payment', 'recent', 'branch', branchId],
-    queryFn: async () => {
-      // Backend does not have a /recent/branch/id endpoint in PaymentController yet.
-      // We will follow the backend singular route pattern.
-      const { data } = await api.get(`/api/payment/recent/branch/${branchId}`)
-      return data
-    },
-    ...config,
-  })
-}
 
-export function useRecentPaymentsInRestaurant(restaurantId: string, config?: any) {
-  return useQuery({
-    queryKey: ['payment', 'recent', 'restaurant', restaurantId],
-    queryFn: async () => {
-      // Backend does not have a /recent/branch/id endpoint in PaymentController yet.
-      // We will follow the backend singular route pattern.
-      const { data } = await api.get(`/api/payment/recent/restaurant/${restaurantId}`)
-      return data
-    },
-    ...config,
-  })
-}
 
 // ===== RESERVATIONS =====
-export function useReservations(branchId: string, date?: string) {
+export function useReservations(branchId: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['reservations', branchId, date],
+    queryKey: ['reservations', branchId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/reservations/branch/${branchId}`, { params: { date } })
-      return data
+      const { data } = await api.get(`/api/reservations/branch/${branchId}`, { params })
+      return data.items || []
     },
     enabled: !!branchId
   })
 }
 
 // ===== CUSTOMERS =====
-export function useCustomers(restaurantId: string, search?: string) {
+export function useCustomers(restaurantId: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['customers', restaurantId, search],
+    queryKey: ['customers', restaurantId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/customers/restaurant/${restaurantId}`, { params: { search } })
+      const { data } = await api.get(`/api/customers/restaurant/${restaurantId}`, { params })
       return data
     },
     enabled: !!restaurantId,
@@ -332,11 +417,11 @@ export function useCustomers(restaurantId: string, search?: string) {
 }
 
 // ===== EMPLOYEES =====
-export function useEmployees(branchId: string) {
+export function useEmployees(branchId: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['employees', branchId],
+    queryKey: ['employees', branchId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/employees/branch/${branchId}`)
+      const { data } = await api.get(`/api/employees/branch/${branchId}`, { params })
       return data
     },
     enabled: !!branchId
@@ -354,23 +439,25 @@ export function useEmployeeShifts(branchId: string, date: string) {
   })
 }
 
-// ===== INVENTORY =====
-export function useInventoryItems(branchId: string) {
+export function useInventoryItems(workingId: string, type: 'branch' | 'restaurant' = 'branch', params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['inventory-items', branchId],
+    queryKey: ['inventory-items', type, workingId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/inventory/items/branch/${branchId}`)
+      const endpoint = type === 'branch' 
+        ? `/api/inventory/items/branch/${workingId}` 
+        : `/api/inventory/items/restaurant/${workingId}`
+      const { data } = await api.get(endpoint, { params })
       return data
     },
-    enabled: !!branchId
+    enabled: !!workingId
   })
 }
 
-export function useSuppliers(restaurantId: string) {
+export function useSuppliers(restaurantId: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['suppliers', restaurantId],
+    queryKey: ['suppliers', restaurantId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/inventory/suppliers/restaurant/${restaurantId}`)
+      const { data } = await api.get(`/api/inventory/suppliers/restaurant/${restaurantId}`, { params })
       return data
     },
     enabled: !!restaurantId
@@ -378,15 +465,49 @@ export function useSuppliers(restaurantId: string) {
 }
 
 // ===== PROMOTIONS =====
-export function usePromotions(restaurantId: string) {
+export function usePromotions(restaurantId: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['promotions', restaurantId],
+    queryKey: ['promotions', restaurantId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/promotions/restaurant/${restaurantId}`)
-      return data
+      const { data } = await api.get(`/api/promotions/restaurant/${restaurantId}`, { params })
+      return data.items || []
     },
     enabled: !!restaurantId,
     refetchOnMount: true,
+  })
+}
+
+// ===== DASHBOARD & STATS =====
+export function useDashboardOverview(workingId: string, mode: 'branch' | 'restaurant', filter: string) {
+  return useQuery({
+    queryKey: ['dashboard-overview', workingId, mode, filter],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/dashboard/overview/${workingId}`, { params: { mode, filter } })
+      return data
+    },
+    enabled: !!workingId
+  })
+}
+
+export function useHourlyStats(workingId: string, mode: 'branch' | 'restaurant', filter: string) {
+  return useQuery({
+    queryKey: ['dashboard-hourly', workingId, mode, filter],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/dashboard/hourly/${workingId}`, { params: { mode, filter } })
+      return data
+    },
+    enabled: !!workingId
+  })
+}
+
+export function useCategoryRevenue(workingId: string, mode: 'branch' | 'restaurant', filter: string) {
+  return useQuery({
+    queryKey: ['dashboard-category-revenue', workingId, mode, filter],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/dashboard/category-revenue/${workingId}`, { params: { mode, filter } })
+      return data
+    },
+    enabled: !!workingId
   })
 }
 
@@ -402,11 +523,11 @@ export function useAuditLogs(params: { page?: number; pageSize?: number; module?
 }
 
 // ===== ROLES =====
-export function useRoles(restaurantId: string) {
+export function useRoles(restaurantId: string, params?: Record<string, any>) {
   return useQuery({
-    queryKey: ['roles', restaurantId],
+    queryKey: ['roles', restaurantId, params],
     queryFn: async () => {
-      const { data } = await api.get(`/api/roles/restaurant/${restaurantId}`)
+      const { data } = await api.get(`/api/roles/restaurant/${restaurantId}`, { params })
       return data
     },
     enabled: !!restaurantId,

@@ -1,12 +1,14 @@
 'use client'
 
 import { useRef } from 'react'
+import Image from 'next/image'
 import { X, Printer, CheckCircle } from 'lucide-react'
 
 export interface InvoiceItem {
   menuItemName: string
   quantity: number
   unitPrice: number
+  originalPrice?: number
   subTotal: number
   note?: string
 }
@@ -41,9 +43,6 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: 'Tiền mặt',
   card: 'Thẻ ngân hàng',
   transfer: 'Chuyển khoản',
-  Card: 'Thẻ ngân hàng',
-  Cash: 'Tiền mặt',
-  Transfer: 'Chuyển khoản',
 }
 
 export default function InvoicePrintModal({ data, onClose }: InvoicePrintModalProps) {
@@ -174,23 +173,43 @@ export default function InvoicePrintModal({ data, onClose }: InvoicePrintModalPr
             </div>
 
             {/* Items */}
-            {data.items.map((item, idx) => (
-              <div key={idx}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 1 }}>
-                  <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>{item.menuItemName}</span>
-                  <span style={{ width: 28, textAlign: 'center', fontSize: 12 }}>x{item.quantity}</span>
-                  <span style={{ width: 72, textAlign: 'right', fontSize: 11, color: '#555' }}>
-                    {item.unitPrice.toLocaleString('vi-VN')}
-                  </span>
-                  <span style={{ width: 80, textAlign: 'right', fontWeight: 700, fontSize: 12 }}>
-                    {item.subTotal.toLocaleString('vi-VN')}đ
-                  </span>
+            {(() => {
+              const groupedItems: any[] = [];
+              data.items
+                .filter(item => item.status !== 'awaiting_confirmation' && item.status !== 'cancelled')
+                .forEach(item => {
+                const existing = groupedItems.find(g => g.menuItemName === item.menuItemName && g.unitPrice === item.unitPrice && g.note === item.note);
+                if (existing) {
+                  existing.quantity += item.quantity;
+                  existing.subTotal += item.subTotal;
+                } else {
+                  groupedItems.push({ ...item });
+                }
+              });
+
+              return groupedItems.map((item, idx) => (
+                <div key={idx}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 1 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{item.menuItemName}</div>
+                      {item.originalPrice && item.originalPrice > item.unitPrice && (
+                        <div style={{ fontSize: 9, color: '#aaa', textDecoration: 'line-through' }}>{item.originalPrice.toLocaleString('vi-VN')}</div>
+                      )}
+                    </div>
+                    <span style={{ width: 28, textAlign: 'center', fontSize: 12 }}>x{item.quantity}</span>
+                    <span style={{ width: 72, textAlign: 'right', fontSize: 11, color: '#555' }}>
+                      {item.unitPrice.toLocaleString('vi-VN')}
+                    </span>
+                    <span style={{ width: 80, textAlign: 'right', fontWeight: 700, fontSize: 12 }}>
+                      {item.subTotal.toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+                  {item.note && (
+                    <div style={{ fontSize: 10, color: '#888', paddingLeft: 4, marginBottom: 2 }}>↳ {item.note}</div>
+                  )}
                 </div>
-                {item.note && (
-                  <div style={{ fontSize: 10, color: '#888', paddingLeft: 4, marginBottom: 2 }}>↳ {item.note}</div>
-                )}
-              </div>
-            ))}
+              ));
+            })()}
 
             <div style={{ borderTop: '1px dashed #aaa', margin: '8px 0' }} />
 
@@ -221,13 +240,14 @@ export default function InvoicePrintModal({ data, onClose }: InvoicePrintModalPr
 
 
             {/* QR Code */}
-            <img style={{
-              margin: '0 auto',
-              display: 'block',
-              width: 80,
-              height: 80,
-            }}
-              src={`https://qr.sepay.vn/img?acc=${data.bankNumber}&bank=${data.bankId}&amount=${data.totalAmount}`} />
+            <div style={{ margin: '0 auto', display: 'block', width: 80, height: 80 }}>
+              <Image
+                alt="QR code for payment"
+                src={`https://qr.sepay.vn/img?acc=${data.bankNumber}&bank=${data.bankId}&amount=${data.totalAmount}`}
+                width={80}
+                height={80}
+              />
+            </div>
 
             {/* Danh sách chi nhánh */}
             {data.branchs.length > 0 && (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, startTransition } from 'react'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
 import {
@@ -13,49 +13,51 @@ import {
   Gift,
   Tag,
   Pencil,
+  Search,
 } from 'lucide-react'
 import { VoucherDetailModal } from './components/VoucherDetailModal'
 import { CreatePromoteModal } from './components/CreatePromoteModal'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { useAuth } from '@/lib/auth'
 import { useToast } from '@/hooks/useToast'
+import { usePagination } from '@/hooks/usePagination'
+import { Pagination } from '@/components/Pagination'
+import { useBranches, usePromotions } from '@/hooks/useApi'
+import { SelectBox } from '@/components/SelectBox'
+
+type Promotion = {
+  id: string
+  isActive: boolean
+  name: string
+  description?: string
+  type: 'percentage' | 'fixed' | string
+  discountValue: number
+  minOrderAmount?: number
+  startDate: string
+  endDate: string
+  voucherCodes?: string[]
+}
 
 export default function PromotionsPage() {
   const { user } = useAuth()
   const restaurantId = user?.restaurantId || ''
+  const isOwner = user?.isOwner
 
-  const [promotions, setPromotions] = useState<Promotion[]>([])
-  const [loading, setLoading] = useState(true)
+  const toast = useToast()
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, promoId: string | null }>({ isOpen: false, promoId: null })
+
+  const { pageIndex, pageSize, search, setSearch, setPage, paginationParams } = usePagination(10)
+  const { data: promoData, isLoading: loading, refetch: loadPromotions } = usePromotions(restaurantId, paginationParams)
+  const promotions = promoData?.items || (Array.isArray(promoData) ? promoData : [])
+  const totalCount = promoData?.totalCount || 0
+  const totalPages = promoData?.totalPages || 1
   const [showModal, setShowModal] = useState(false)
   const [showVouchersModal, setShowVouchersModal] = useState(false)
-  const [selectedPromotion, setSelectedPromotion] = useState<Promotion | any>(null)
-  const [vouchersList, setVouchersList] = useState<VoucherCode[]>([])
-  
-  const toast = useToast()
-  const [confirmDialog, setConfirmDialog] = useState<{isOpen: boolean, promoId: string | null}>({isOpen: false, promoId: null})
-
-  // Edit state
-  const [editPromotion, setEditPromotion] = useState<Promotion | null>(null)
-
-  const loadPromotions = async () => {
-    if (!restaurantId) return
-    setLoading(true)
-    try {
-      const { data } = await api.get(`/api/promotions/restaurant/${restaurantId}`)
-      console.log(data);
-      
-      setPromotions(data)
-    } catch (err) {
-      console.error(err)
-      setPromotions([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadPromotions()
-  }, [restaurantId])
+  const [selectedPromotion, setSelectedPromotion] = useState<any>(null)
+  const [vouchersList, setVouchersList] = useState<any[]>([])
+  const [editPromotion, setEditPromotion] = useState<any>(null)
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(user?.branchId || '')
+  const { data: branches = [] } = useBranches(restaurantId)
 
   const toggleStatus = async (promo: Promotion) => {
     try {
@@ -113,6 +115,15 @@ export default function PromotionsPage() {
     }
   }
 
+  // Nếu là owner và chưa có chi nhánh nào được chọn, tự động chọn chi nhánh đầu tiên
+  useEffect(() => {
+    if (isOwner && !selectedBranchId && branches.length > 0) {
+      startTransition(() => {
+        setSelectedBranchId(prev => prev || branches[0].id)
+      })
+    }
+  }, [isOwner, selectedBranchId, branches])
+
   return (
     <AuthLayout>
       <div className="p-6 max-w-7xl mx-auto">
@@ -121,17 +132,42 @@ export default function PromotionsPage() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
               <TicketPercent className="text-blue-600" size={32} />
-              Khuyến mãi &amp; Vouchers
+              Khuyến mãi & Vouchers
             </h1>
             <p className="text-gray-500 mt-1">Quản lý các chương trình giảm giá và mã quà tặng</p>
           </div>
-          <button
-            onClick={handleCreateNew}
-            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-200"
-          >
-            <Plus size={20} />
-            Tạo khuyến mãi mới
-          </button>
+          <div className="flex items-center gap-4">
+            {
+              isOwner && (
+                <div className='w-52'>
+                  <SelectBox value={selectedBranchId} options={branches} optionLabel='name' optionValue='id' onChange={(val) => setSelectedBranchId(val)} />
+                </div>
+              )
+            }
+            <button
+              onClick={handleCreateNew}
+              className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-200 shrink-0"
+            >
+              <Plus size={20} />
+              Tạo khuyến mãi mới
+            </button>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="mb-6 flex gap-4">
+          <div className="relative flex-1 max-w-md">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <Search size={18} />
+            </span>
+            <input
+              type="text"
+              placeholder="Tìm kiếm khuyến mãi..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+            />
+          </div>
         </div>
 
         {/* Stats Summary */}
@@ -278,6 +314,16 @@ export default function PromotionsPage() {
             ))}
           </div>
         )}
+
+        <div className="mt-8">
+          <Pagination
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
+        </div>
 
         {/* Create / Edit Promote Modal */}
         <CreatePromoteModal

@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useFormik } from 'formik'
+import * as Yup from 'yup'
 import AuthLayout from '@/components/AuthLayout'
 import api from '@/lib/api'
 import React from 'react'
@@ -11,35 +13,81 @@ import { useAuth } from '@/lib/auth'
 export default function RestaurantPage() {
   const { user } = useAuth()
   const restaurantId = user?.restaurantId || ''
-
-  const { data: restaurant, isLoading, refetch } = useRestaurant(restaurantId)
-  const [formData, setFormData] = useState<any>(null)
+  const logoInputRef = useRef<HTMLInputElement | null>(null)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [uploadingLogo, setUploadingLogo] = useState(false)
-  const logoInputRef = React.useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (restaurant) setFormData({ ...restaurant })
-  }, [restaurant])
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const toastTimeoutRef = useRef<number | null>(null)
 
   const showToast = (type: 'success' | 'error', msg: string) => {
+    if (toastTimeoutRef.current) {
+      window.clearTimeout(toastTimeoutRef.current)
+    }
     setToast({ type, msg })
-    setTimeout(() => setToast(null), 3000)
+    toastTimeoutRef.current = window.setTimeout(() => setToast(null), 3000)
   }
 
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      await api.put(`/api/restaurants/${restaurantId}`, formData)
-      refetch()
-      showToast('success', 'Cập nhật thông tin thành công!')
-    } catch {
-      showToast('error', 'Lỗi khi cập nhật thông tin')
-    } finally {
-      setSaving(false)
+  const { data: restaurant, isLoading, refetch } = useRestaurant(restaurantId)
+
+  const validationSchema = Yup.object({
+    name: Yup.string().required('Tên nhà hàng là bắt buộc').max(100, 'Tối đa 100 ký tự'),
+    description: Yup.string().max(500, 'Tối đa 500 ký tự'),
+    taxCode: Yup.string().max(20, 'Tối đa 20 ký tự'),
+    website: Yup.string().url('Website không hợp lệ').nullable(),
+    phone: Yup.string().required('Số điện thoại là bắt buộc').max(20, 'Tối đa 20 ký tự'),
+    email: Yup.string().email('Email không hợp lệ').required('Email là bắt buộc'),
+    address: Yup.string().required('Địa chỉ là bắt buộc').max(200, 'Tối đa 200 ký tự'),
+    bankId: Yup.string().max(20, 'Tối đa 20 ký tự'),
+    bankNumber: Yup.string().max(30, 'Tối đa 30 ký tự'),
+    bankOwner: Yup.string().max(100, 'Tối đa 100 ký tự'),
+  });
+
+  const formik = useFormik({
+    initialValues: {
+      name: '',
+      description: '',
+      taxCode: '',
+      website: '',
+      phone: '',
+      email: '',
+      address: '',
+      bankId: '',
+      bankNumber: '',
+      bankOwner: '',
+      logoUrl: ''
+    },
+    validationSchema,
+    onSubmit: async (values) => {
+      setSaving(true);
+      try {
+        await api.put(`/api/restaurants/${restaurantId}`, values);
+        refetch();
+        showToast('success', 'Cập nhật thông tin thành công!');
+      } catch {
+        showToast('error', 'Lỗi khi cập nhật thông tin');
+      } finally {
+        setSaving(false);
+      }
     }
-  }
+  });
+
+  useEffect(() => {
+    if (restaurant) {
+      formik.setValues({
+        name: restaurant.name || '',
+        description: restaurant.description || '',
+        taxCode: restaurant.taxCode || '',
+        website: restaurant.website || '',
+        phone: restaurant.phone || '',
+        email: restaurant.email || '',
+        address: restaurant.address || '',
+        bankId: restaurant.bankId || '',
+        bankNumber: restaurant.bankNumber || '',
+        bankOwner: restaurant.bankOwner || '',
+        logoUrl: restaurant.logoUrl || ''
+      });
+    }
+  }, [restaurant]);
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -57,7 +105,7 @@ export default function RestaurantPage() {
       const res = await api.post(`/api/restaurants/${restaurantId}/upload-logo`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
-      setFormData((prev: any) => ({ ...prev, logoUrl: res.data.logoUrl }))
+      formik.setFieldValue('logoUrl', res.data.logoUrl);
       showToast('success', 'Tải logo lên thành công! (Hãy bấm Lưu thay đổi)')
     } catch {
       showToast('error', 'Lỗi khi tải logo lên')
@@ -82,7 +130,7 @@ export default function RestaurantPage() {
     </AuthLayout>
   )
 
-  if (isLoading || !formData) return (
+  if (isLoading || !restaurant) return (
     <AuthLayout>
       <div className="p-8 flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
@@ -118,8 +166,8 @@ export default function RestaurantPage() {
             <p className="text-gray-500 mt-2 text-lg">Quản lý thông tin doanh nghiệp và nhận diện thương hiệu</p>
           </div>
           <button
-            onClick={handleSave}
-            disabled={saving}
+            onClick={() => formik.handleSubmit()}
+            disabled={saving || !formik.isValid}
             className="bg-gray-900 hover:bg-black text-white px-8 py-4 rounded-2xl font-bold flex items-center gap-3 shadow-2xl transition-all hover:scale-105 active:scale-95 disabled:opacity-50 shrink-0"
           >
             <Save size={20} />
@@ -137,50 +185,60 @@ export default function RestaurantPage() {
                 Thông tin cơ bản
               </h2>
               <div className="space-y-5">
-                <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Tên nhà hàng</label>
-                  <input
-                    type="text"
-                    value={formData.name || ''}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium text-lg"
-                    placeholder="Tên nhà hàng của bạn"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Mô tả ngắn</label>
-                  <textarea
-                    value={formData.description || ''}
-                    onChange={e => setFormData({...formData, description: e.target.value})}
-                    rows={3}
-                    className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium resize-none"
-                    placeholder="Giới thiệu về nhà hàng..."
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Mã số thuế</label>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Tên nhà hàng</label>
                     <input
+                      name="name"
                       type="text"
-                      value={formData.taxCode || ''}
-                      onChange={e => setFormData({...formData, taxCode: e.target.value})}
-                      className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
-                      placeholder="0123456789"
+                      value={formik.values.name}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      className={`w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium text-lg ${formik.touched.name && formik.errors.name ? 'ring-2 ring-red-500' : ''}`}
+                      placeholder="Tên nhà hàng của bạn"
+                    />
+                    {formik.touched.name && formik.errors.name && <p className="text-red-500 text-xs mt-1 font-bold">{formik.errors.name}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Mô tả ngắn</label>
+                    <textarea
+                      name="description"
+                      value={formik.values.description}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      rows={3}
+                      className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium resize-none"
+                      placeholder="Giới thiệu về nhà hàng..."
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Website</label>
-                    <div className="relative">
-                      <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Mã số thuế</label>
                       <input
+                        name="taxCode"
                         type="text"
-                        value={formData.website || ''}
-                        onChange={e => setFormData({...formData, website: e.target.value})}
-                        className="w-full bg-gray-50 border-0 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
-                        placeholder="https://..."
+                        value={formik.values.taxCode}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
+                        placeholder="0123456789"
                       />
                     </div>
-                  </div>
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Website</label>
+                      <div className="relative">
+                        <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                        <input
+                          name="website"
+                          type="text"
+                          value={formik.values.website}
+                          onChange={formik.handleChange}
+                          onBlur={formik.handleBlur}
+                          className={`w-full bg-gray-50 border-0 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium ${formik.touched.website && formik.errors.website ? 'ring-2 ring-red-500' : ''}`}
+                          placeholder="https://..."
+                        />
+                      </div>
+                      {formik.touched.website && formik.errors.website && <p className="text-red-500 text-xs mt-1 font-bold px-1">{formik.errors.website}</p>}
+                    </div>
                 </div>
               </div>
             </div>
@@ -197,39 +255,48 @@ export default function RestaurantPage() {
                   <div className="relative">
                     <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                     <input
+                      name="phone"
                       type="text"
-                      value={formData.phone || ''}
-                      onChange={e => setFormData({...formData, phone: e.target.value})}
-                      className="w-full bg-gray-50 border-0 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
+                      value={formik.values.phone}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      className={`w-full bg-gray-50 border-0 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium ${formik.touched.phone && formik.errors.phone ? 'ring-2 ring-red-500' : ''}`}
                       placeholder="028 1234 5678"
                     />
                   </div>
+                  {formik.touched.phone && formik.errors.phone && <p className="text-red-500 text-xs mt-1 font-bold">{formik.errors.phone}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Email</label>
                   <div className="relative">
                     <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                     <input
+                      name="email"
                       type="email"
-                      value={formData.email || ''}
-                      onChange={e => setFormData({...formData, email: e.target.value})}
-                      className="w-full bg-gray-50 border-0 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
+                      value={formik.values.email}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      className={`w-full bg-gray-50 border-0 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium ${formik.touched.email && formik.errors.email ? 'ring-2 ring-red-500' : ''}`}
                       placeholder="info@nhahanng.com"
                     />
                   </div>
+                  {formik.touched.email && formik.errors.email && <p className="text-red-500 text-xs mt-1 font-bold">{formik.errors.email}</p>}
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Địa chỉ trụ sở</label>
                   <div className="relative">
                     <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                     <input
+                      name="address"
                       type="text"
-                      value={formData.address || ''}
-                      onChange={e => setFormData({...formData, address: e.target.value})}
-                      className="w-full bg-gray-50 border-0 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
+                      value={formik.values.address}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      className={`w-full bg-gray-50 border-0 rounded-2xl pl-12 pr-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium ${formik.touched.address && formik.errors.address ? 'ring-2 ring-red-500' : ''}`}
                       placeholder="123 Đường ABC, Quận 1, TP.HCM"
                     />
                   </div>
+                  {formik.touched.address && formik.errors.address && <p className="text-red-500 text-xs mt-1 font-bold">{formik.errors.address}</p>}
                 </div>
               </div>
             </div>
@@ -245,9 +312,11 @@ export default function RestaurantPage() {
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Ngân hàng (Bank ID)</label>
                   <input
+                    name="bankId"
                     type="text"
-                    value={formData.bankId || ''}
-                    onChange={e => setFormData({...formData, bankId: e.target.value})}
+                    value={formik.values.bankId}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
                     className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
                     placeholder="VD: MB, VCB, ICB..."
                   />
@@ -256,9 +325,11 @@ export default function RestaurantPage() {
                 <div>
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Số tài khoản</label>
                   <input
+                    name="bankNumber"
                     type="text"
-                    value={formData.bankNumber || ''}
-                    onChange={e => setFormData({...formData, bankNumber: e.target.value})}
+                    value={formik.values.bankNumber}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
                     className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium"
                     placeholder="Nhập số tài khoản ngân hàng"
                   />
@@ -266,9 +337,11 @@ export default function RestaurantPage() {
                 <div className="md:col-span-2">
                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 px-1">Tên chủ tài khoản</label>
                   <input
+                    name="bankOwner"
                     type="text"
-                    value={formData.bankOwner || ''}
-                    onChange={e => setFormData({...formData, bankOwner: e.target.value})}
+                    value={formik.values.bankOwner}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
                     className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-blue-600 transition-all font-medium uppercase"
                     placeholder="VD: NGUYEN VAN A"
                   />
@@ -295,8 +368,8 @@ export default function RestaurantPage() {
                 className={`w-44 h-44 bg-gray-50 rounded-[2rem] mx-auto mb-5 flex items-center justify-center border-4 border-dashed border-gray-200 overflow-hidden group relative cursor-pointer ${uploadingLogo ? 'opacity-50' : ''}`}
                 onClick={() => !uploadingLogo && logoInputRef.current?.click()}
               >
-                {formData.logoUrl ? (
-                  <img src={formData.logoUrl} alt="Logo" className="w-full h-full object-contain p-4 transition-transform group-hover:scale-110" />
+                {formik.values.logoUrl ? (
+                  <img src={formik.values.logoUrl} alt="Logo" className="w-full h-full object-contain p-4 transition-transform group-hover:scale-110" />
                 ) : (
                   <div className="text-center">
                     <Building2 size={48} className="text-gray-200 mx-auto mb-2" />
@@ -330,7 +403,7 @@ export default function RestaurantPage() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="opacity-70 text-sm">Ngày tạo:</span>
-                  <span className="font-medium text-sm">{formData.createdAt ? new Date(formData.createdAt).toLocaleDateString('vi-VN') : '—'}</span>
+                  <span className="font-medium text-sm">{restaurant?.createdAt ? new Date(restaurant.createdAt).toLocaleDateString('vi-VN') : '—'}</span>
                 </div>
                 <div className="flex justify-between items-center border-t border-white/20 pt-4">
                   <span className="opacity-70 text-sm">Số chi nhánh:</span>

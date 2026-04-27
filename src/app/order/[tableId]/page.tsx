@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useEffect, use } from 'react'
+import Image from 'next/image'
 import {
   useMenuItems,
   useMenuCategories,
   useRestaurant,
   useTables,
-  useTableById
+  useTableById,
+  usePromotions
 } from '@/hooks/useApi'
 import {
   ShoppingCart,
@@ -16,12 +18,22 @@ import {
   ChefHat,
   ArrowLeft,
   UtensilsCrossed,
+  Info,
+  TicketPercent,
   Clock,
-  Info
+  XCircle
 } from 'lucide-react'
 import api from '@/lib/api'
 import { useToast } from '@/hooks/useToast'
-import { ChatBot } from '@/components/ChatBot'
+
+const ORDER_ITEM_STATUS: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
+  pending: { label: 'Chờ xử lý', className: 'badge-pending', icon: <Clock size={12} color='yellow' /> },
+  cooking: { label: 'Đang làm', className: 'badge-cooking', icon: <ChefHat size={12} color='blue' /> },
+  ready: { label: 'Sẵn sàng', className: 'badge-ready', icon: <CheckCircle2 size={12} color='green' /> },
+  served: { label: 'Đã phục vụ', className: 'badge-served', icon: <UtensilsCrossed size={12} color='orange' /> },
+  paid: { label: 'Đã thanh toán', className: 'badge-paid', icon: <CheckCircle2 size={12} color='green' /> },
+  cancelled: { label: 'Đã hủy', className: 'badge-cancelled', icon: <XCircle size={12} color='red' /> },
+}
 
 export default function GuestOrderPage({ params }: { params: Promise<{ tableId: string }> }) {
   const { tableId } = use(params)
@@ -41,11 +53,41 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
   const [loading, setLoading] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('all')
 
-  const { data: menuCategories = [] } = useMenuCategories(restaurantId)
-  const { data: menuItems = [] } = useMenuItems(restaurantId)
-  const { data: restaurant } = useRestaurant(restaurantId)
   const { data: table, refetch: refetchTable } = useTableById(tableId)
-  
+  const { data: restaurant } = useRestaurant(restaurantId)
+  const { data: menuCategories = [] } = useMenuCategories(restaurantId, table?.branchId)
+  const { data: menuItemsData } = useMenuItems(restaurantId, table?.branchId, { pageSize: 1000 })
+  const menuItems = menuItemsData?.items || (Array.isArray(menuItemsData) ? menuItemsData : [])
+  const { data: allPromotions = [] } = usePromotions(restaurantId)
+
+  const isTypePercentage = (type: string) => /percentage/i.test(type)
+
+  const getItemPromotion = (item: any) => {
+    return allPromotions.filter((p: any) => {
+      if (!p.isActive || p.isVoucher || !/item/i.test(p.applyTo)) return false
+      if (!p.menuItemIds) return false
+      try {
+        const ids = typeof p.menuItemIds === 'string' ? JSON.parse(p.menuItemIds) : p.menuItemIds
+        return Array.isArray(ids) && ids.includes(item.id)
+      } catch { return false }
+    }).reduce((best: any, p: any) => {
+      let amount = 0
+      if (isTypePercentage(p.type)) {
+        amount = (item.price * p.discountValue) / 100
+      } else {
+        amount = p.discountValue
+      }
+      if (!best || amount > best.amount) return { amount, promotion: p }
+      return best
+    }, null)
+  }
+
+  const getItemDiscountedPrice = (item: any) => {
+    const promo = getItemPromotion(item)
+    if (promo) return Math.max(0, item.price - promo.amount)
+    return item.price
+  }
+
   // Update fetchHistory or useTableById to poll more frequently on guest page
   useEffect(() => {
     const timer = setInterval(() => refetchTable(), 10000)
@@ -91,10 +133,11 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
   }, [table?.branchId])
 
   const addToCart = (item: any) => {
+    const discountedPrice = getItemDiscountedPrice(item)
     setCart(prev => {
       const existing = prev.find(c => c.id === item.id)
       if (existing) return prev.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c)
-      return [...prev, { ...item, quantity: 1 }]
+      return [...prev, { id: item.id, name: item.name, price: discountedPrice, originalPrice: item.price, quantity: 1, imageUrl: item.imageUrl }]
     })
   }
 
@@ -105,34 +148,21 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
     }).filter(c => c.quantity > 0))
   }
 
-  const subtotal = cart.reduce((sum, item) => sum + (item.basePrice || item.price) * item.quantity, 0)
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
 
   const fetchHistory = async () => {
     if (!tableId) return
     try {
-      const [orderRes, pendingRes] = await Promise.all([
+      const [orderRes] = await Promise.all([
         api.get(`/api/orders/table/${tableId}`),
-        api.get(`/api/orders/pending/table/${tableId}`)
       ])
       
       let items: any[] = []
-      
-      // Confirmed items
-      const activeOrder = orderRes.data.find((o: any) => o.status !== 'paid' && o.status !== 'cancelled')
-      if (activeOrder) {
-        items = [...(activeOrder.items || [])]
-      }
-      
       // Pending items
-      const pendingOrders = pendingRes.data
-      pendingOrders.forEach((p: any) => {
+      const orders = orderRes.data
+      orders.forEach((p: any) => {
         p.items.forEach((pi: any) => {
-          items.push({
-            menuItemName: pi.menuItemName,
-            quantity: pi.quantity,
-            subTotal: 0, // Not calculated yet
-            status: 'awaiting_confirmation'
-          })
+          items.push(pi)
         })
       })
 
@@ -151,22 +181,23 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
   const handleOrder = async () => {
     setLoading(true)
     const isEmptyGuid = (id: any) => !id || id === '00000000-0000-0000-0000-000000000000';
-    
+
     try {
       if (table?.currentOrderId && !isEmptyGuid(table.currentOrderId)) {
-        // Add items to existing order
-        for (const item of cart) {
-          await api.post(`/api/orders/${table.currentOrderId}/items`, { 
-            menuItemId: item.id, 
-            quantity: item.quantity 
-          })
-        }
+        // Add items to existing order in batch
+        await api.post(`/api/orders/${table.currentOrderId}/items/multiple`, 
+          cart.map(item => ({
+            menuItemId: item.id,
+            quantity: item.quantity
+          }))
+        )
       } else {
         // Create new order
         await api.post('/api/orders', {
           tableId: tableId,
           items: cart.map(i => ({ menuItemId: i.id, quantity: i.quantity })),
-          source: 'QR'
+          source: 'QR',
+          restaurantId: table?.restaurantId
         })
       }
       setCart([])
@@ -212,22 +243,22 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
       </div>
       <h1 className="text-3xl font-black text-gray-900 mb-2 tracking-tight uppercase">Đã gửi yêu cầu!</h1>
       <p className="text-gray-500 mb-8 max-w-xs mx-auto text-sm">Vui lòng chờ nhân viên xác nhận đơn hàng của bạn.</p>
-      
-      {historyItems.length > 0 && (
+
+      {cart.length > 0 && (
         <div className="w-full max-w-sm mb-12">
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-left mb-2 ml-1">Đơn hàng hiện tại</p>
           <div className="space-y-3 mb-6">
-          {historyItems.map((item: any, idx) => (
-            <div key={idx} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100">
-               <div className="text-left">
-                 <p className="font-black text-xs text-gray-900 uppercase">{item.menuItemName}</p>
-                 <p className="text-[10px] text-gray-400 font-bold">Số lượng: {item.quantity}</p>
-               </div>
-               <span className="text-blue-600 font-black text-xs">{item.subTotal.toLocaleString()}đ</span>
-            </div>
-          ))}
+            {cart.map((item: any, idx) => (
+              <div key={idx} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                <div className="text-left">
+                  <p className="font-black text-xs text-gray-900 uppercase">{item.name}</p>
+                  <p className="text-[10px] text-gray-400 font-bold">Số lượng: {item.quantity}</p>
+                </div>
+                <span className="text-blue-600 font-black text-xs">{item.subTotal.toLocaleString()}đ</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
       )}
 
       <button onClick={() => setOrdered(false)} className="w-full max-w-xs py-4 bg-gray-900 text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl sticky bottom-4">
@@ -274,27 +305,46 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
 
       {/* Menu Items */}
       <div className="p-4 grid grid-cols-2 gap-4 mt-4">
-        {menuItems.filter((i: any) => selectedCategory === 'all' || i.categoryId === selectedCategory).map((item: any) => (
-          <div key={item.id} className="bg-white rounded-[2rem] p-3 shadow-sm border border-gray-100 flex flex-col">
-            <div className="aspect-square bg-gray-50 rounded-2xl mb-3 flex items-center justify-center overflow-hidden relative">
-              {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <UtensilsCrossed size={32} className="text-gray-200" />}
-              <button
-                onClick={() => addToCart(item)}
-                className="absolute bottom-2 right-2 w-10 h-10 bg-blue-600 text-white rounded-xl shadow-lg flex items-center justify-center transform active:scale-95 transition-transform"
-              >
-                <Plus size={20} />
-              </button>
+        {menuItems.filter((i: any) => selectedCategory === 'all' || i.categoryId === selectedCategory).map((item: any) => {
+          const promo = getItemPromotion(item)
+          const discountedPrice = getItemDiscountedPrice(item)
+          const hasDiscount = discountedPrice < item.price
+
+          return (
+            <div key={item.id} className="bg-white rounded-[2rem] p-3 shadow-sm border border-gray-100 flex flex-col relative">
+              <div className="aspect-square bg-gray-50 rounded-2xl mb-3 flex items-center justify-center overflow-hidden relative">
+                {item.imageUrl ? <Image src={item.imageUrl} alt={item.name} fill className="object-cover" /> : <UtensilsCrossed size={32} className="text-gray-200" />}
+
+                {hasDiscount && (
+                  <div className="absolute top-2 left-2 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-sm flex items-center gap-1 z-10">
+                    <TicketPercent size={10} />
+                    {promo && isTypePercentage(promo.promotion.type) ? `-${promo.promotion.discountValue}%` : 'SALE'}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => addToCart(item)}
+                  className="absolute bottom-2 right-2 w-10 h-10 bg-blue-600 text-white rounded-xl shadow-lg flex items-center justify-center transform active:scale-95 transition-transform z-10"
+                >
+                  <Plus size={20} />
+                </button>
+              </div>
+              <h4 className="font-bold text-gray-900 text-[11px] px-1 line-clamp-1 truncate uppercase">{item.name}</h4>
+              <div className="flex items-center justify-between mt-1 px-1">
+                <p className="text-blue-600 font-black text-sm">{discountedPrice.toLocaleString()}đ</p>
+                {hasDiscount && (
+                  <span className="text-[10px] text-gray-400 line-through font-medium">{item.price.toLocaleString()}đ</span>
+                )}
+              </div>
             </div>
-            <h4 className="font-bold text-gray-900 text-xs px-1 line-clamp-1 truncate uppercase">{item.name}</h4>
-            <p className="text-blue-600 font-black text-sm px-1 mt-1">{item.price.toLocaleString()}đ</p>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Floating Bottom Cart Bar */}
       {cart.length > 0 && !showCart && (
         <div className="fixed bottom-6 left-6 right-6 z-40">
-          <button 
+          <button
             onClick={() => setShowCart(true)}
             className="w-full bg-gray-900 text-white rounded-2xl p-4 shadow-2xl flex items-center justify-between border border-white/10 animate-in slide-in-from-bottom flex active:scale-95 transition-all"
           >
@@ -325,8 +375,8 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
             <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
               {cart.map((item, idx) => (
                 <div key={`cart-${idx}`} className="flex gap-4 p-4 bg-gray-50 rounded-2xl">
-                  <div className="w-20 h-20 bg-white rounded-xl overflow-hidden shrink-0 border">
-                    {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <UtensilsCrossed size={16} className="text-gray-200 mt-6 mx-auto" />}
+                  <div className="w-20 h-20 bg-white rounded-xl overflow-hidden shrink-0 border relative">
+                    {item.imageUrl ? <Image src={item.imageUrl} alt={item.name} fill className="object-cover" /> : <UtensilsCrossed size={16} className="text-gray-200 mt-6 mx-auto" />}
                   </div>
                   <div className="flex-1 flex flex-col justify-between py-1">
                     <div>
@@ -352,12 +402,14 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
                       <div key={`history-${idx}`} className="flex items-center justify-between p-4 bg-gray-100 rounded-2xl opacity-80">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                             <CheckCircle2 size={16} className={item.status === 'cooking' ? 'text-green-500' : 'text-blue-500'} />
+                            {
+                              ORDER_ITEM_STATUS[item.status]?.icon || <Clock size={12} className="text-gray-400" />
+                            }
                           </div>
                           <div>
                             <p className="font-black text-[11px] text-gray-900 uppercase">{item.menuItemName}</p>
                             <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">
-                              Số lượng: {item.quantity} • {item.status === 'awaiting_confirmation' ? 'Đang chờ duyệt' : item.status === 'cooking' ? 'Đang làm' : 'Đã phục vụ'}
+                              Số lượng: {item.quantity} • {ORDER_ITEM_STATUS[item.status]?.label || 'Đang xử lý'}
                             </p>
                           </div>
                         </div>
@@ -371,8 +423,8 @@ export default function GuestOrderPage({ params }: { params: Promise<{ tableId: 
 
             <div className="p-8 bg-gray-50 border-t space-y-6">
               <div className="flex justify-between items-end">
-                {}
-                {}
+                { }
+                { }
               </div>
               <button
                 onClick={handleOrder}

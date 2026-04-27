@@ -21,6 +21,8 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
+  selectedBranchId: string
+  setSelectedBranchId: (id: string) => void
   login: (username: string, password: string) => Promise<void>
   register: (data: RegisterData) => Promise<void>
   logout: () => Promise<void>
@@ -39,13 +41,27 @@ const AuthContext = createContext<AuthContextType | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [selectedBranchId, _setSelectedBranchId] = useState<string>('')
+
+  const setSelectedBranchId = (id: string) => {
+    _setSelectedBranchId(id)
+    localStorage.setItem('selectedBranchId', id)
+  }
 
   useEffect(() => {
     const restore = async () => {
       try {
         const stored = localStorage.getItem('user')
         if (stored) {
-          setUser(JSON.parse(stored))
+          const parsedUser = JSON.parse(stored)
+          setUser(parsedUser)
+          
+          const storedBranch = localStorage.getItem('selectedBranchId')
+          if (storedBranch !== null) {
+            _setSelectedBranchId(storedBranch)
+          } else {
+            _setSelectedBranchId(parsedUser.branchId || '')
+          }
         }
       } catch (err) {
         console.error('Failed to restore session', err)
@@ -74,6 +90,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           branchId: parseJwt(data.token)?.branchId as string,
         }
         localStorage.setItem('user', JSON.stringify(userData))
+        
+        // Default working branch to user's assigned branch
+        localStorage.setItem('selectedBranchId', userData.branchId || '')
+        _setSelectedBranchId(userData.branchId || '')
 
         setUser(userData)
         await logUserAction({
@@ -94,7 +114,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userName = user?.fullName || 'Người dùng'
     localStorage.removeItem('accessToken')
     localStorage.removeItem('user')
+    localStorage.removeItem('selectedBranchId')
     setUser(null)
+    _setSelectedBranchId('')
     await logUserAction({
       action: `Đăng xuất khỏi hệ thống: ${userName}`,
       module: AuditModules.AUTH
@@ -106,6 +128,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoading,
       isAuthenticated: !!user,
+      selectedBranchId,
+      setSelectedBranchId,
       login,
       register,
       logout,
